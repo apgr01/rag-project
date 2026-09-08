@@ -4,13 +4,13 @@ Sistema RAG per l'interrogazione di cataloghi PDF (componenti, tabelle, immagini
 
 ## Flusso di lavoro
 
-1. **Caricare il PDF sorgente** in `data/raw/`.
+1. **Caricare il PDF sorgente** in `data/pdfs/`.
 
 2. **Scrivere/verificare il primer del template** in `config/primers/`.
    Il primer è una descrizione (scritta a mano, con l'aiuto di un'AI in chat interattiva) della struttura del catalogo: come sono organizzati i capitoli, l'ordine dei contenuti, le convenzioni delle tabelle e dei codici. Un primer per ogni tipologia/template di catalogo — se cambia il layout, se ne scrive uno nuovo.
 
 3. **Renderizzare le pagine** (`ingestion/render_pages.py`)
-   PDF → immagini pagina in `data/pages/`. Passo eseguito una volta per PDF, il risultato è cache.
+   PDF → immagini pagina in `data/images/`. Passo eseguito una volta per PDF, il risultato è cache.
 
 4. **Generare le descrizioni per pagina** (`ingestion/describe_pages.py`)
    Per ogni pagina: immagine + primer → chiamata API Gemini → descrizione salvata in `data/descriptions/`.
@@ -27,8 +27,8 @@ Sistema RAG per l'interrogazione di cataloghi PDF (componenti, tabelle, immagini
 ```
 rag-project/
 ├── data/
-│   ├── raw/                    # PDF originali
-│   ├── pages/                  # immagini pagina renderizzate (cache)
+│   ├── pdfs/                    # PDF originali
+│   ├── images/                  # immagini pagina renderizzate (cache)
 │   └── descriptions/           # descrizioni generate da Gemini, una per pagina
 │       └── <nome_pdf>/
 │           ├── page_0001.json
