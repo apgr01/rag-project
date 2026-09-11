@@ -4,69 +4,38 @@ describe_pages.py
 Per ogni pagina già renderizzata in immagine (vedi render_pages.py), invia
 l'immagine + il primer di contesto a Gemini e salva la descrizione generata.
 
-Usa un manifest.json per tenere traccia dello stato di avanzamento: puoi
-interrompere lo script in qualsiasi momento e rilanciarlo, riparte da dove
-aveva lasciato senza ripetere chiamate già andate a buon fine.
-
-SICUREZZA SUI COSTI:
-Questo script è pensato per il tier GRATUITO di Google AI Studio (API key
-senza account di fatturazione collegato). In quello stato, superare la
-quota produce solo errori 429 "RESOURCE_EXHAUSTED" — non un addebito.
-Non collegare un account di fatturazione al progetto Google se vuoi
-mantenere questa garanzia.
+Usa un manifest.json per tenere traccia dello stato di avanzamento.
+Gestisce automaticamente più API Key caricate nel file .env (GEMINI_API_KEY_01,
+GEMINI_API_KEY_02, ecc.) ruotando chiave quando una quota viene superata (429) —
+logica condivisa con rag/query.py tramite common/gemini_client.py.
 
 Setup:
     pip install google-genai python-dotenv tqdm
-    # nel file .env nella root del progetto:
-    # GEMINI_API_KEY=la_tua_chiave
-
-Uso:
-    python describe_pages.py --pdf catalogo_kubota --primer kubota_catalog_v1
-    python describe_pages.py --pdf catalogo_kubota --primer kubota_catalog_v1 --limit 5   # test su poche pagine
-    python describe_pages.py --pdf catalogo_kubota --primer kubota_catalog_v1 --force     # rigenera tutto
 """
 
 import argparse
 import json
-import os
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from dotenv import load_dotenv
-from google import genai
 from google.genai import types
-from google.genai import errors as genai_errors
 from tqdm import tqdm
 
-# --- Configurazione ---------------------------------------------------
-
 SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent
+sys.path.insert(0, str(PROJECT_ROOT))  # cosi' troviamo il pacchetto common/ dalla root
+
+from common.gemini_client import KeyManager, QuotaExhausted, generate_with_rotation  # noqa: E402
+
 IMAGES_DIR = SCRIPT_DIR / "../data/images"
 DESCRIPTIONS_DIR = SCRIPT_DIR / "../data/descriptions"
 PRIMERS_DIR = SCRIPT_DIR / "../config/primers"
 
-# Verifica sempre su https://ai.google.dev/gemini-api/docs/models se questo
-# e' ancora il modello Flash stabile corrente: i modelli vengono ritirati
-# regolarmente (Gemini 2.5 Flash, ad esempio, va in pensione il 16/10/2026).
 DEFAULT_MODEL = "gemini-3.6-flash"
-
-# Quante volte ritentare una pagina che fallisce per un errore "non di quota"
-# (es. immagine illeggibile, risposta vuota) prima di arrendersi su quella
-# pagina specifica e passare oltre.
 MAX_ATTEMPTS = 5
-
-# Dopo quanti fallimenti CONSECUTIVI (non di quota) interrompere l'intera run.
-# Protegge da scenari come "il primer e' rotto e ogni pagina fallisce allo
-# stesso modo" — meglio fermarsi e controllare che continuare a bruciare
-# quota giornaliera su richieste destinate a fallire comunque.
 MAX_CONSECUTIVE_FAILURES = 5
-
-# Richieste al minuto: tienilo prudente e sotto il limite del tier gratuito
-# per il modello che usi (controlla il limite RPM attuale sulla pagina dei
-# rate limit di Google). Un valore prudente lascia margine ad altre
-# eventuali chiamate che fai nello stesso periodo (es. test manuali).
 DEFAULT_RPM = 10
 
 PROMPT_TEMPLATE = """Ti fornisco il contesto generale di un catalogo PDF e l'immagine di una sua pagina specifica.
@@ -85,19 +54,6 @@ Includi:
 
 Scrivi solo la descrizione, in italiano, senza premesse tipo "Ecco la descrizione:".
 """
-
-
-# --- Setup client e primer ---------------------------------------------
-
-def get_client() -> genai.Client:
-    load_dotenv()
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "GEMINI_API_KEY non trovata. Controlla che il file .env esista "
-            "nella root del progetto e contenga GEMINI_API_KEY=la_tua_chiave."
-        )
-    return genai.Client(api_key=api_key)
 
 
 def load_primer(primer_name: str) -> str:
@@ -163,39 +119,24 @@ def pages_to_process(manifest: dict, force: bool) -> list[int]:
 
 # --- Chiamata a Gemini per una singola pagina ---------------------------
 
-class QuotaExhausted(Exception):
-    """Segnala che la quota (giornaliera, quasi certamente) e' esaurita:
-    non ha senso continuare a tentare altre pagine in questa run."""
-    pass
-
-
-def describe_page(client: genai.Client, image_path: Path, primer_text: str, model: str) -> str:
+def describe_page(key_manager: KeyManager, image_path: Path, primer_text: str, model: str) -> str:
     image_bytes = image_path.read_bytes()
     prompt = PROMPT_TEMPLATE.format(primer=primer_text)
 
-    try:
-        response = client.models.generate_content(
-            model=model,
-            contents=[
-                prompt,
-                types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
-            ],
-            config=types.GenerateContentConfig(
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                    disable=True
-                )
-            ),
-        )
-    except genai_errors.ClientError as e:
-        if e.code == 429:
-            # Il SDK ritenta gia' da solo gli errori transitori (fino a 4 volte
-            # con backoff): se l'errore arriva comunque fin qui, molto
-            # probabilmente e' la quota GIORNALIERA esaurita, non un picco
-            # temporaneo. Non ha senso continuare a martellare l'API.
-            raise QuotaExhausted(str(e)) from e
-        # Altri errori 4xx (es. 400 immagine non valida, 403 permessi):
-        # non sono recuperabili ritentando la stessa richiesta identica.
-        raise
+    # generate_with_rotation si occupa gia' di ruotare la chiave e ritentare
+    # se scatta un 429: qui non serve piu' gestirlo a mano.
+    response = generate_with_rotation(
+        key_manager,
+        log=tqdm.write,  # cosi' i messaggi di rotazione non rompono la progress bar
+        model=model,
+        contents=[
+            prompt,
+            types.Part.from_bytes(data=image_bytes, mime_type="image/png"),
+        ],
+        config=types.GenerateContentConfig(
+            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+        ),
+    )
 
     if not response.candidates:
         raise ValueError("Risposta senza candidati (probabile blocco di sicurezza).")
@@ -214,7 +155,7 @@ def describe_page(client: genai.Client, image_path: Path, primer_text: str, mode
 # --- Elaborazione di una pagina, con aggiornamento del manifest ---------
 
 def process_page(
-    client: genai.Client,
+    key_manager: KeyManager,
     pdf_stem: str,
     page_num: int,
     primer_text: str,
@@ -222,7 +163,7 @@ def process_page(
     model: str,
     manifest: dict,
 ) -> str:
-    """Ritorna 'done', 'failed', o solleva QuotaExhausted."""
+    """Ritorna 'done' o 'failed'. Solleva QuotaExhausted se TUTTE le chiavi sono finite."""
     image_path = IMAGES_DIR / pdf_stem / f"page-{page_num:04d}.png"
     page_key = str(page_num)
     page_info = manifest["pages"][page_key]
@@ -237,7 +178,7 @@ def process_page(
         return "failed"
 
     try:
-        description = describe_page(client, image_path, primer_text, model)
+        description = describe_page(key_manager, image_path, primer_text, model)
     except QuotaExhausted:
         raise
     except Exception as e:
@@ -277,7 +218,7 @@ def parse_args():
     parser.add_argument("--pdf", required=True, help="Nome del PDF senza estensione (es. 'catalogo_kubota').")
     parser.add_argument("--primer", required=True, help="Nome del file primer in config/primers/, senza estensione.")
     parser.add_argument("--force", action="store_true", help="Rigenera tutte le pagine, incluse quelle gia' 'done'.")
-    parser.add_argument("--limit", type=int, default=None, help="Elabora al massimo N pagine in questa run (utile per test).")
+    parser.add_argument("--limit", type=int, default=None, help="Elabora al massimo N pagine in questa run.")
     parser.add_argument("--rpm", type=int, default=DEFAULT_RPM, help=f"Richieste al minuto massime (default: {DEFAULT_RPM}).")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Modello Gemini da usare (default: {DEFAULT_MODEL}).")
     return parser.parse_args()
@@ -287,7 +228,7 @@ def main():
     args = parse_args()
 
     try:
-        client = get_client()
+        key_manager = KeyManager()
         primer_text = load_primer(args.primer)
         manifest = load_manifest(args.pdf)
     except (RuntimeError, FileNotFoundError) as e:
@@ -302,7 +243,8 @@ def main():
         print("✅ Nessuna pagina da elaborare (tutto gia' fatto — usa --force per rigenerare).")
         return
 
-    print(f"In elaborazione {len(todo)} pagine di '{args.pdf}' con il modello '{args.model}'.")
+    print(f"🔑 Caricate {len(key_manager.keys)} API Key. Chiave iniziale: {key_manager.current_key_name}")
+    print(f"🚀 In elaborazione {len(todo)} pagine di '{args.pdf}' con il modello '{args.model}'.")
 
     delay_between_calls = 60.0 / args.rpm
     consecutive_failures = 0
@@ -313,12 +255,12 @@ def main():
         for page_num in tqdm(todo, desc=args.pdf, unit="pagina"):
             try:
                 result = process_page(
-                    client, args.pdf, page_num, primer_text, args.primer, args.model, manifest
+                    key_manager, args.pdf, page_num, primer_text, args.primer, args.model, manifest
                 )
             except QuotaExhausted as e:
-                print(f"\n⚠️  Quota esaurita alla pagina {page_num}: {e}")
-                print("Interrompo qui. Le pagine non ancora fatte restano 'pending' "
-                      "e verranno riprese al prossimo avvio dello script.")
+                print(f"\n⚠️  {e}")
+                print("Interrompo la run. Le pagine rimanenti restano 'pending' e "
+                      "verranno riprese al prossimo avvio (magari domani, a quota rinnovata).")
                 save_manifest(args.pdf, manifest)
                 sys.exit(0)
 
@@ -329,15 +271,11 @@ def main():
                 failed_count += 1
                 consecutive_failures += 1
 
-            # Salvo il manifest dopo OGNI pagina, non solo alla fine:
-            # se lo script viene interrotto (Ctrl+C, crash, chiusura del PC),
-            # il progresso fatto finora non va perso.
             save_manifest(args.pdf, manifest)
 
             if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                 print(f"\n⚠️  {consecutive_failures} fallimenti consecutivi (non di quota). "
-                      f"Interrompo per controllo manuale — probabile problema sistematico "
-                      f"(primer, formato immagini, ecc.), non ha senso continuare a consumare quota.")
+                      f"Interrompo per controllo manuale.")
                 break
 
             time.sleep(delay_between_calls)
@@ -350,8 +288,7 @@ def main():
     save_manifest(args.pdf, manifest)
     print(f"\nFatto. ✅ {done_count} completate, ❌ {failed_count} fallite in questa run.")
     if failed_count:
-        print("Rilancia lo script senza --force per ritentare automaticamente le pagine fallite "
-              "(fino al limite di tentativi configurato).")
+        print("Rilancia lo script senza --force per ritentare automaticamente le pagine fallite.")
 
 
 if __name__ == "__main__":
