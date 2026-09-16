@@ -1,0 +1,18 @@
+app:
+  name: "Industrial Catalog RAG"
+  environment: "development"
+
+ingestion:
+  mode: "standard"                           # Opzioni: "standard" | "catalog"
+  chunk_size: 500                            # Caratteri per chunk (modalità standard)
+  chunk_overlap: 50                          # Overlap tra chunk consecutivi
+  primer_path: "configs/primers/Catalogo 5 KUBOTA rel 1010.md"  # Usato in modalità "catalog"
+  render_dpi: 150                            # Risoluzione conversione PDF -> Immagini
+
+rag:
+  mode: "standard"                           # Opzioni: "standard" | "hybrid"
+  llm_model: "gemini-3.6-flash"                # Modello per la generazione della risposta
+  flash_model: "gemini-3.6-flash"            # Modello rapido per routing/parsing
+  vector_db_path: "rag/store"
+  collection_name: "catalog_documents"
+  similarity_top_k: 4                        # Numero di chunk da recuperare

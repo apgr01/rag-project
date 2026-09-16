@@ -1,105 +1,126 @@
-"""
-common/gemini_client.py
-
-Gestione centralizzata delle chiavi API Gemini multiple, con rotazione
-automatica quando una chiave esaurisce la quota (errore 429).
-
-Usato sia da ingestion/describe_pages.py sia da rag/query.py, cosi' la
-logica di rotazione e' scritta e mantenuta in un solo posto.
-"""
-
 import os
-import re
-from typing import Callable
-
-from dotenv import load_dotenv
+import itertools
+from pathlib import Path
+from typing import Type, TypeVar, Optional, List, Union
 from google import genai
-from google.genai import errors as genai_errors
+from google.genai import types
+from dotenv import load_dotenv
+from pydantic import BaseModel
 
+from common.paths import ENV_FILE
 
-class QuotaExhausted(Exception):
-    """Segnala che TUTTE le chiavi disponibili hanno esaurito la quota."""
-    pass
+# Carica espressamente il file .env dalla radice del progetto
+load_dotenv(dotenv_path=ENV_FILE)
 
+T = TypeVar("T", bound=BaseModel)
 
-class KeyManager:
-    """Gestisce l'elenco delle API Key disponibili e ruota la chiave quando una va in quota esaurita."""
+class GeminiClient:
+    """
+    Wrapper centralizzato per le chiamate a Google Gemini.
+    Carica ed ordina le chiavi (es. GEMINI_API_KEY_01, GEMINI_API_KEY_02, ecc.) e ruota in caso di 429.
+    """
 
-    def __init__(self):
-        load_dotenv()
-        self.keys: list[tuple[str, str]] = []  # [(nome_variabile, valore_chiave), ...]
-        self.exhausted_keys: set[str] = set()
+    def __init__(self, api_keys: Optional[List[str]] = None):
+        if api_keys:
+            self.api_keys = api_keys
+        else:
+            self.api_keys = self._load_keys_from_env()
 
-        # 1. Chiave singola classica
-        single_key = os.environ.get("GEMINI_API_KEY")
-        if single_key:
-            self.keys.append(("GEMINI_API_KEY", single_key.strip()))
+        if not self.api_keys:
+            raise ValueError(f"Nessuna API Key trovata. Verifica il file .env in {ENV_FILE}")
 
-        # 2. Chiavi numerate (GEMINI_API_KEY_01, GEMINI_API_KEY_02, ...)
-        key_pattern = re.compile(r"^GEMINI_API_KEY_\d+$")
-        env_keys = sorted(k for k in os.environ.keys() if key_pattern.match(k))
+        self._key_cycle = itertools.cycle(self.api_keys)
+        self._current_key = next(self._key_cycle)
+        self.client = genai.Client(api_key=self._current_key)
 
-        for k in env_keys:
-            val = os.environ.get(k, "").strip()
-            if val and (k, val) not in self.keys:
-                self.keys.append((k, val))
+    def _load_keys_from_env(self) -> List[str]:
+        keys = []
+        
+        # Cerca stringa separata da virgole in GEMINI_API_KEYS
+        raw_keys = os.getenv("GEMINI_API_KEYS")
+        if raw_keys:
+            keys.extend([k.strip() for k in raw_keys.split(",") if k.strip()])
 
-        if not self.keys:
-            raise RuntimeError(
-                "Nessuna API Key trovata nel file .env.\n"
-                "Definisci GEMINI_API_KEY oppure GEMINI_API_KEY_01, GEMINI_API_KEY_02..."
+        # Raccoglie tutte le variabili che iniziano con GEMINI_API_KEY
+        key_vars = []
+        for env_name, env_val in os.environ.items():
+            if env_name.startswith("GEMINI_API_KEY") and env_name != "GEMINI_API_KEYS":
+                if env_val and env_val.strip():
+                    key_vars.append((env_name, env_val.strip()))
+
+        # Ordina per nome variabile (così GEMINI_API_KEY_01 viene prima di GEMINI_API_KEY_02)
+        key_vars.sort(key=lambda x: x[0])
+        for _, val in key_vars:
+            if val not in keys:
+                keys.append(val)
+
+        return keys
+
+    def _rotate_key(self) -> str:
+        self._current_key = next(self._key_cycle)
+        self.client = genai.Client(api_key=self._current_key)
+        return self._current_key
+
+    def _call_with_fallback(self, func, *args, **kwargs):
+        last_exception = None
+        for attempt in range(len(self.api_keys)):
+            try:
+                self.client = genai.Client(api_key=self._current_key)
+                return func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                err_msg = str(e).lower()
+                if "429" in err_msg or "quota" in err_msg or "resourceexhausted" in err_msg:
+                    print(f"⚠️ Quota superata. Cambio API Key (tentativo {attempt + 1}/{len(self.api_keys)})...")
+                    self._rotate_key()
+                else:
+                    raise e
+        raise last_exception
+
+    def generate_text(self, prompt: str, model_name: str = "gemini-2.5-flash", temperature: float = 0.2) -> str:
+        def _invoke():
+            chat = self.client.chats.create(
+                model=model_name,
+                config=types.GenerateContentConfig(temperature=temperature)
             )
+            response = chat.send_message(prompt)
+            return response.text
+        return self._call_with_fallback(_invoke)
 
-        self.current_index = 0
+    def generate_with_vision(self, prompt: str, image_path: str, model_name: str = "gemini-2.5-flash", temperature: float = 0.2) -> str:
+        img_p = Path(image_path)
+        if not img_p.exists():
+            raise FileNotFoundError(f"Immagine non trovata: {image_path}")
 
-    @property
-    def current_key_name(self) -> str:
-        return self.keys[self.current_index][0]
+        def _invoke():
+            image_bytes = img_p.read_bytes()
+            chat = self.client.chats.create(
+                model=model_name,
+                config=types.GenerateContentConfig(temperature=temperature)
+            )
+            response = chat.send_message(
+                [prompt, types.Part.from_bytes(data=image_bytes, mime_type="image/png")]
+            )
+            return response.text
+        return self._call_with_fallback(_invoke)
 
-    def get_client(self) -> genai.Client:
-        _, api_key = self.keys[self.current_index]
-        return genai.Client(api_key=api_key)
+    def generate_structured(self, prompt: str, response_schema: Type[T], image_path: Optional[str] = None, model_name: str = "gemini-2.5-flash", temperature: float = 0.1) -> T:
+        def _invoke():
+            message_parts = [prompt]
+            if image_path:
+                img_p = Path(image_path)
+                if not img_p.exists():
+                    raise FileNotFoundError(f"Immagine non trovata: {image_path}")
+                message_parts.append(types.Part.from_bytes(data=img_p.read_bytes(), mime_type="image/png"))
 
-    def mark_current_exhausted(self) -> bool:
-        """Marca la chiave corrente come esaurita e passa alla successiva disponibile.
-        Ritorna True se ce n'e' un'altra, False se sono finite tutte."""
-        key_name = self.current_key_name
-        self.exhausted_keys.add(key_name)
-
-        for i in range(len(self.keys)):
-            next_idx = (self.current_index + 1 + i) % len(self.keys)
-            next_name = self.keys[next_idx][0]
-            if next_name not in self.exhausted_keys:
-                self.current_index = next_idx
-                return True
-
-        return False
-
-
-def generate_with_rotation(key_manager: KeyManager, log: Callable[[str], None] = print, **kwargs):
-    """
-    Wrapper attorno a client.models.generate_content(**kwargs): se la chiave
-    corrente va in quota esaurita (429), ruota automaticamente alla successiva
-    e ripete la STESSA richiesta, senza che il chiamante debba gestirlo.
-
-    Solleva QuotaExhausted solo quando anche l'ultima chiave disponibile
-    e' esaurita.
-
-    'log' e' la funzione usata per stampare i messaggi di cambio chiave —
-    passa tqdm.write invece di print se stai iterando dentro una barra tqdm,
-    cosi' non rompi la progress bar.
-    """
-    while True:
-        client = key_manager.get_client()
-        try:
-            return client.models.generate_content(**kwargs)
-        except genai_errors.ClientError as e:
-            if e.code != 429:
-                raise
-            log(f"⚠️  Quota esaurita per {key_manager.current_key_name}.")
-            if key_manager.mark_current_exhausted():
-                log(f"🔄 Cambio automatico alla chiave: {key_manager.current_key_name}...")
-                continue
-            raise QuotaExhausted(
-                "TUTTE le API Key disponibili nel file .env hanno esaurito la quota."
-            ) from e
+            chat = self.client.chats.create(
+                model=model_name,
+                config=types.GenerateContentConfig(
+                    temperature=temperature,
+                    response_mime_type="application/json",
+                    response_schema=response_schema
+                )
+            )
+            response = chat.send_message(message_parts)
+            return response_schema.model_validate_json(response.text)
+        return self._call_with_fallback(_invoke)

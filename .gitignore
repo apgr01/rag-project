@@ -1,5 +1,16 @@
+# Cache Python
+__pycache__/
+*.pyc
+
+# Ambienti virtuali e dati locali
 .venv/
-.env
 data/
-config/
 docs/
+rag/store/
+
+# File di configurazione sensibili
+.env
+
+# File di sistema e IDE
+.DS_Store
+.vscode/
