@@ -1,10 +1,12 @@
 import json
 import time
 import pymupdf
+import threading
 from pathlib import Path
 from typing import Dict, Any, List
 from datetime import datetime, timezone
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from ingestion.base import BaseIngestor
 from common.config import Config
@@ -41,6 +43,11 @@ class StandardIngestor(BaseIngestor):
         
         self.images_dir = IMAGES_DIR
         self.descriptions_dir = DESCRIPTIONS_DIR
+
+        # Lock per rendere thread-safe l'accesso al file manifest e ai contatori globali
+        self._manifest_lock = threading.Lock()
+        self._failures_lock = threading.Lock()
+        self.consecutive_failures = 0
 
     def process_document(self, file_path: str, force: bool = False, rpm: int = 10) -> Dict[str, Any]:
         pdf_path = Path(file_path)
@@ -148,11 +155,18 @@ class StandardIngestor(BaseIngestor):
             return self._collect_existing_descriptions(pdf_stem)
 
         delay_between_calls = 60.0 / rpm
-        consecutive_failures = 0
+        self.consecutive_failures = 0
 
-        for page_num in tqdm(todo, desc=f"Descrizione {pdf_stem}", unit="pag"):
+        # Calcola il numero di worker in base alle API keys disponibili (minimo 1)
+        num_workers = max(1, len(getattr(self.gemini_client, 'api_keys', [1])))
+
+        def _worker(page_num):
+            # Se abbiamo superato i fallimenti, abortiamo rapidamente il thread
+            with self._failures_lock:
+                if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                    return False, page_num, "Interrotto per troppi fallimenti consecutivi nel sistema"
+
             page_key = str(page_num)
-            page_info = manifest["pages"][page_key]
             img_path = self.images_dir / pdf_stem / f"page-{page_num:04d}.png"
             json_out_path = desc_out_dir / f"page-{page_num:04d}.json"
 
@@ -174,31 +188,53 @@ class StandardIngestor(BaseIngestor):
                 with open(json_out_path, "w", encoding="utf-8") as f:
                     json.dump(desc_data, f, indent=2, ensure_ascii=False)
 
-                page_info.update({
-                    "status": "done",
-                    "attempts": page_info.get("attempts", 0) + 1,
-                    "last_error": None,
-                    "last_attempt": datetime.now(timezone.utc).isoformat()
-                })
-                consecutive_failures = 0
+                with self._manifest_lock:
+                    manifest["pages"][page_key].update({
+                        "status": "done",
+                        "attempts": manifest["pages"][page_key].get("attempts", 0) + 1,
+                        "last_error": None,
+                        "last_attempt": datetime.now(timezone.utc).isoformat()
+                    })
+                    self._save_manifest(pdf_stem, manifest)
+
+                with self._failures_lock:
+                    self.consecutive_failures = 0
+
+                time.sleep(delay_between_calls)
+                return True, page_num, None
 
             except Exception as e:
-                page_info.update({
-                    "status": "failed",
-                    "attempts": page_info.get("attempts", 0) + 1,
-                    "last_error": str(e),
-                    "last_attempt": datetime.now(timezone.utc).isoformat()
-                })
-                consecutive_failures += 1
-                tqdm.write(f"⚠️ Errore alla pagina {page_num}: {e}")
+                with self._manifest_lock:
+                    manifest["pages"][page_key].update({
+                        "status": "failed",
+                        "attempts": manifest["pages"][page_key].get("attempts", 0) + 1,
+                        "last_error": str(e),
+                        "last_attempt": datetime.now(timezone.utc).isoformat()
+                    })
+                    self._save_manifest(pdf_stem, manifest)
 
-            self._save_manifest(pdf_stem, manifest)
+                with self._failures_lock:
+                    self.consecutive_failures += 1
 
-            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                print(f"\n❌ Interruzione: {MAX_CONSECUTIVE_FAILURES} fallimenti consecutivi.")
-                break
+                time.sleep(delay_between_calls)
+                return False, page_num, str(e)
 
-            time.sleep(delay_between_calls)
+        print(f"⚙️ Esecuzione in parallelo con {num_workers} worker (API keys)...")
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Sottomettiamo tutti i task all'executor
+            future_to_page = {executor.submit(_worker, p): p for p in todo}
+            
+            # tqdm viene aggiornato non appena un thread finisce il suo lavoro
+            with tqdm(total=len(todo), desc=f"Descrizione {pdf_stem}", unit="pag") as pbar:
+                for future in as_completed(future_to_page):
+                    success, page_num, err_msg = future.result()
+                    if not success and "Interrotto per troppi fallimenti" not in err_msg:
+                        tqdm.write(f"⚠️ Errore alla pagina {page_num}: {err_msg}")
+                    pbar.update(1)
+
+        with self._failures_lock:
+            if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                print(f"\n❌ Interruzione generale: {MAX_CONSECUTIVE_FAILURES} fallimenti consecutivi raggiunti.")
 
         return self._collect_existing_descriptions(pdf_stem)
 

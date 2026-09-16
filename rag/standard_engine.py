@@ -41,11 +41,19 @@ class StandardQueryEngine(BaseQueryEngine):
         print(f"🔍 Ricerca semantica su ChromaDB per: '{query}'" + 
             (f" [filtro: {source_filter}]" if source_filter else ""))
 
-        search_results = self.vector_store.query(
-            query_text=query,
-            n_results=self.top_k,
-            where=where
-        )
+        # 1. Ricerca Vettoriale Sicura con gestione errori
+        try:
+            search_results = self.vector_store.query(
+                query_text=query,
+                n_results=self.top_k,
+                where=where
+            )
+        except Exception as e:
+            return {
+                "query": query,
+                "answer": f"❌ Errore durante la ricerca nel database vettoriale: {str(e)}",
+                "sources": []
+            }
 
         documents = search_results.get("documents", [[]])[0]
         metadatas = search_results.get("metadatas", [[]])[0]
@@ -76,18 +84,22 @@ class StandardQueryEngine(BaseQueryEngine):
 
         full_context = "\n\n---\n\n".join(formatted_blocks)
 
-        # 3. Generazione della risposta via Gemini
+        # 3. Generazione della risposta via Gemini con gestione errori
         prompt = RAG_PROMPT_TEMPLATE.format(
             context=full_context,
             query=query
         )
 
         print(f"🤖 Generazione risposta con {self.config.rag.llm_model}...")
-        answer_text = self.gemini_client.generate_text(
-            prompt=prompt,
-            model_name=self.config.rag.llm_model,
-            temperature=0.2
-        )
+        try:
+            answer_text = self.gemini_client.generate_text(
+                prompt=prompt,
+                model_name=self.config.rag.llm_model,
+                temperature=0.2
+            )
+        except Exception as e:
+            # Catturiamo l'errore API, ma mostriamo all'utente le fonti trovate
+            answer_text = f"⚠️ Le fonti nel database sono state trovate, ma è stato impossibile generare la risposta riassuntiva a causa di un errore API (es. Quota superata o offline).\n\nDettaglio: {str(e)}"
 
         return {
             "query": query,
