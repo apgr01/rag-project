@@ -44,7 +44,6 @@ class StandardIngestor(BaseIngestor):
         self.images_dir = IMAGES_DIR
         self.descriptions_dir = DESCRIPTIONS_DIR
 
-        # Lock per rendere thread-safe l'accesso al file manifest e ai contatori globali
         self._manifest_lock = threading.Lock()
         self._failures_lock = threading.Lock()
         self.consecutive_failures = 0
@@ -157,11 +156,9 @@ class StandardIngestor(BaseIngestor):
         delay_between_calls = 60.0 / rpm
         self.consecutive_failures = 0
 
-        # Calcola il numero di worker in base alle API keys disponibili (minimo 1)
         num_workers = max(1, len(getattr(self.gemini_client, 'api_keys', [1])))
 
         def _worker(page_num):
-            # Se abbiamo superato i fallimenti, abortiamo rapidamente il thread
             with self._failures_lock:
                 if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                     return False, page_num, "Interrotto per troppi fallimenti consecutivi nel sistema"
@@ -221,10 +218,8 @@ class StandardIngestor(BaseIngestor):
 
         print(f"⚙️ Esecuzione in parallelo con {num_workers} worker (API keys)...")
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Sottomettiamo tutti i task all'executor
             future_to_page = {executor.submit(_worker, p): p for p in todo}
             
-            # tqdm viene aggiornato non appena un thread finisce il suo lavoro
             with tqdm(total=len(todo), desc=f"Descrizione {pdf_stem}", unit="pag") as pbar:
                 for future in as_completed(future_to_page):
                     success, page_num, err_msg = future.result()

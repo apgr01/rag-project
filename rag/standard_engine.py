@@ -41,7 +41,6 @@ class StandardQueryEngine(BaseQueryEngine):
         print(f"🔍 Ricerca semantica su ChromaDB per: '{query}'" + 
             (f" [filtro: {source_filter}]" if source_filter else ""))
 
-        # 1. Ricerca Vettoriale Sicura con gestione errori
         try:
             search_results = self.vector_store.query(
                 query_text=query,
@@ -65,7 +64,6 @@ class StandardQueryEngine(BaseQueryEngine):
                 "sources": []
             }
 
-        # 2. Formattazione dei blocchi di testo e tracciamento fonti
         formatted_blocks: List[str] = []
         sources: List[Dict[str, Any]] = []
 
@@ -84,7 +82,6 @@ class StandardQueryEngine(BaseQueryEngine):
 
         full_context = "\n\n---\n\n".join(formatted_blocks)
 
-        # 3. Generazione della risposta via Gemini con gestione errori
         prompt = RAG_PROMPT_TEMPLATE.format(
             context=full_context,
             query=query
@@ -98,7 +95,6 @@ class StandardQueryEngine(BaseQueryEngine):
                 temperature=0.2
             )
         except Exception as e:
-            # Catturiamo l'errore API, ma mostriamo all'utente le fonti trovate
             answer_text = f"⚠️ Le fonti nel database sono state trovate, ma è stato impossibile generare la risposta riassuntiva a causa di un errore API (es. Quota superata o offline).\n\nDettaglio: {str(e)}"
 
         return {

@@ -12,7 +12,6 @@ class VectorStore:
             self.db_path = VECTOR_STORE_DIR
         else:
             p = Path(db_path)
-            # Ancoraggio pulito a PROJECT_ROOT se il percorso è relativo
             self.db_path = p if p.is_absolute() else PROJECT_ROOT / p
             
         self.collection_name = collection_name
