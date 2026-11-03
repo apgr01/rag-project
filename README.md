@@ -1,58 +1,133 @@
 # rag-project
 
-Sistema RAG per l'interrogazione di cataloghi PDF (componenti, tabelle, immagini) tramite descrizioni semantiche generate da un modello multimodale.
+Sistema **RAG (Retrieval-Augmented Generation) vision-first** per interrogare documenti PDF
+in linguaggio naturale — pensato per documenti in cui tabelle, schemi e immagini contano
+quanto il testo (es. cataloghi tecnici di ricambi).
 
-## Flusso di lavoro
+> Progetto personale a scopo didattico. Lo stato di avanzamento e i prossimi passi sono in
+> [`docs/ROADMAP.md`](docs/ROADMAP.md).
 
-1. **Caricare il PDF sorgente** in `data/pdfs/`.
+## Come funziona
 
-2. **Scrivere/verificare il primer del template** in `config/primers/`.
-   Il primer è una descrizione (scritta a mano, con l'aiuto di un'AI in chat interattiva) della struttura del catalogo: come sono organizzati i capitoli, l'ordine dei contenuti, le convenzioni delle tabelle e dei codici. Un primer per ogni tipologia/template di catalogo — se cambia il layout, se ne scrive uno nuovo.
+Invece di estrarre il testo dal PDF (che perde tabelle e disegni), ogni pagina viene
+trasformata in immagine e "letta" da un modello multimodale:
 
-3. **Renderizzare le pagine** (`ingestion/render_pages.py`)
-   PDF → immagini pagina in `data/images/`. Passo eseguito una volta per PDF, il risultato è cache.
+```
+PDF ──► immagini PNG ──► Gemini Vision + primer ──► descrizione testuale per pagina
+                                                              │
+                         domanda ──► ricerca semantica ◄── ChromaDB (embedding)
+                                            │
+                                            ▼
+                              Gemini genera la risposta citando file e pagina
+```
 
-4. **Generare le descrizioni per pagina** (`ingestion/describe_pages.py`)
-   Per ogni pagina: immagine + primer → chiamata API Gemini → descrizione salvata in `data/descriptions/`.
-   Lo script legge `manifest.json` per sapere quali pagine sono già state processate e salta quelle con stato `done`, permettendo di interrompere e riprendere il lavoro su più sessioni (utile con i limiti giornalieri del tier gratuito).
+1. **Rendering** — ogni pagina del PDF diventa un PNG (PyMuPDF).
+2. **Descrizione** — Gemini riceve l'immagine di *una* pagina insieme al **primer**:
+   un testo che spiega com'è fatto il documento nel suo complesso (struttura, sigle,
+   convenzioni delle tabelle). Senza il primer, una pagina isolata spesso non è
+   interpretabile.
+3. **Indicizzazione** — le descrizioni vengono salvate su disco e indicizzate in ChromaDB.
+4. **Interrogazione** — la domanda recupera le pagine più pertinenti e Gemini risponde
+   basandosi solo su quelle, citando le fonti.
 
-5. **Costruire l'indice RAG** (`rag/build_index.py`)
-   Legge tutte le descrizioni in `data/descriptions/`, genera gli embedding e popola il vector store in `rag/store/`. Può essere rilanciato in qualsiasi momento senza richiamare Gemini, perché lavora solo sulle descrizioni già generate.
+L'avanzamento della fase 2 è tracciato in un `manifest.json` per documento: se il lavoro
+si interrompe (es. quota giornaliera API esaurita), al rilancio riparte dalle pagine
+mancanti.
 
-6. **Interrogare il sistema** (`rag/query.py`)
-   Retrieval sul vector store + generazione della risposta finale.
+## Requisiti
+
+- Python **3.11+**
+- Almeno una **API key Gemini** ([Google AI Studio](https://aistudio.google.com/apikey))
+
+## Installazione
+
+```bash
+git clone https://github.com/apgr01/rag-project.git
+cd rag-project
+
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+pip install -e .                 # aggiungi ".[dev]" per gli strumenti di sviluppo
+```
+
+Copia il file di esempio delle chiavi e inserisci la tua:
+
+```bash
+cp .env.example .env
+```
+
+## Utilizzo
+
+### 1. Prepara il primer del documento
+
+Il primer è un file Markdown in `configs/primers/` che descrive il documento. Si scrive una
+volta per ogni *tipo* di documento (stesso layout ⇒ stesso primer). Per generarlo si può
+usare un assistente AI con il prompt in [`docs/primer_prompt.md`](docs/primer_prompt.md),
+allegando il PDF completo.
+
+Poi indica il primer da usare in `configs/default.yaml` (`ingestion.primer_path`).
+
+### 2. Ingestion
+
+```bash
+python main.py ingest --file "data/pdfs/Mio catalogo.pdf"
+```
+
+| Opzione   | Effetto                                                      |
+|-----------|--------------------------------------------------------------|
+| `--force` | Rigenera immagini e descrizioni anche se già presenti         |
+| `--rpm N` | Pausa tra le richieste di ciascun worker (default 10/min)     |
+
+### 3. Interrogazione
+
+```bash
+python main.py query "Qual è il codice del pistone per il motore D905?"
+python main.py query "..." --source "Mio catalogo.pdf"   # limita a un documento
+```
+
+### 4. Documenti indicizzati
+
+```bash
+python main.py list
+```
+
+## Configurazione
+
+`configs/default.yaml` contiene i parametri principali (modelli Gemini, DPI di rendering,
+numero di risultati recuperati, percorso del primer). Viene validato all'avvio con Pydantic.
+
+Le chiavi API stanno in `.env` (mai versionato). Se ne indichi più d'una
+(`GEMINI_API_KEY_01`, `_02`, ...), l'ingestion le usa in parallelo e passa alla successiva
+quando una esaurisce la quota.
 
 ## Struttura del progetto
 
 ```
 rag-project/
-├── data/
-│   ├── pdfs/                    # PDF originali
-│   ├── images/                  # immagini pagina renderizzate (cache)
-│   └── descriptions/           # descrizioni generate da Gemini, una per pagina
-│       └── <nome_pdf>/
-│           ├── page_0001.json
-│           ├── page_0002.json
-│           └── manifest.json   # stato di avanzamento dell'ingestion
-│
-├── config/
-│   └── primers/                # un file per ogni template di catalogo
-│       └── <nome_template>.md
-│
-├── ingestion/                  # produzione delle descrizioni a partire dal PDF
-│   ├── render_pages.py
-│   └── describe_pages.py
-│
-├── rag/                        # indicizzazione e interrogazione
-│   ├── build_index.py
-│   ├── store/                  # vector database persistente
-│   └── query.py
-│
-├── requirements.txt
-└── README.md
+├── main.py                  # CLI: ingest, query, list
+├── common/                  # componenti condivisi
+│   ├── paths.py             #   percorsi ancorati alla root del progetto
+│   ├── config.py            #   caricamento e validazione della configurazione
+│   ├── gemini_client.py     #   client Gemini con rotazione delle chiavi
+│   └── vector_store.py      #   wrapper ChromaDB
+├── ingestion/               # PDF → immagini → descrizioni → indice
+├── rag/                     # retrieval + generazione della risposta
+│   └── store/               #   database vettoriale (generato, non versionato)
+├── configs/
+│   ├── default.yaml         # configurazione
+│   └── primers/             # un primer per tipo di documento
+├── data/                    # PDF, immagini, descrizioni (generato, non versionato)
+└── docs/                    # roadmap e documentazione
 ```
 
-## Note
+## Limitazioni note
 
-- `ingestion/` e `rag/` sono fasi separate ma condividono lo stesso venv Python: `ingestion` chiama API esterne (rendering PDF, Gemini), `rag` gestisce embedding e retrieval. Le due fasi comunicano solo tramite il contenuto di `data/descriptions/`.
-- Ogni file di descrizione contiene, oltre al testo generato, i metadati di provenienza (`primer_version`, `model`, `generated_at`) per facilitare debug e rigenerazioni parziali.  
+Il progetto è in fase di consolidamento (vedi [roadmap](docs/ROADMAP.md), *Fase 0*).
+Le principali limitazioni attuali:
+
+- il primer è unico per tutto il progetto: per un documento di tipo diverso va cambiato
+  in configurazione;
+- il modello di embedding di default di ChromaDB è addestrato su testo inglese, mentre le
+  descrizioni sono in italiano: la qualità del retrieval ne risente;
+- rigenerare una pagina con `--force` non aggiorna la versione già presente nell'indice.
