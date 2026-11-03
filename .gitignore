@@ -1,16 +1,33 @@
-# Cache Python
+# --- Python ---------------------------------------------------------------
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+build/
+dist/
 
-# Ambienti virtuali e dati locali
+# --- Ambienti virtuali -----------------------------------------------------
 .venv/
+venv/
+
+# --- Strumenti di sviluppo -------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Dati generati / locali ------------------------------------------------
+# PDF sorgente, immagini renderizzate e descrizioni: dipendono dall'utente
+# e possono essere rigenerati, quindi non vanno versionati.
 data/
-docs/
+# Database vettoriale persistente (ricostruibile dalle descrizioni).
 rag/store/
 
-# File di configurazione sensibili
+# --- Segreti ---------------------------------------------------------------
 .env
 
-# File di sistema e IDE
+# --- Sistema operativo / IDE -----------------------------------------------
 .DS_Store
+Thumbs.db
 .vscode/
+.idea/
