@@ -15,10 +15,20 @@ from pathlib import Path
 from typing import Any
 
 
+class RagNotInstalledError(ImportError):
+    pass
+
+
 class VectorIndex:
     def __init__(self, path: Path, collection_name: str):
-        import chromadb
-        from chromadb.config import Settings
+        try:
+            import chromadb
+            from chromadb.config import Settings
+        except ImportError as e:
+            raise RagNotInstalledError(
+                "La modalità RAG richiede ChromaDB, che non è installato.\n"
+                'Installalo con:  pip install -e ".[rag]"'
+            ) from e
 
         path.mkdir(parents=True, exist_ok=True)
         self.client = chromadb.PersistentClient(

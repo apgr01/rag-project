@@ -661,7 +661,8 @@ def main(argv: list[str] | None = None) -> int:
 
         app = App(load_config(args.config))
         return args.func(app, args) or 0
-    except (ConfigError, DocumentError, SpecError, GeminiError, PrimerMissingError, FileNotFoundError, ValueError) as e:
+    except (ConfigError, DocumentError, SpecError, GeminiError, PrimerMissingError, FileNotFoundError, ValueError,
+            ImportError) as e:
         ui.error(str(e))
         return 1
     except KeyboardInterrupt:
