@@ -338,6 +338,60 @@ def cmd_spec_new(app: App, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_spec_draft(app: App, args: argparse.Namespace) -> int:
+    from ragpdf.indexing.spec_draft import DraftInput, draft_spec
+
+    target = app.workspace.spec_path(args.name)
+    if target.exists() and not ui.ask_yes_no(f"La specifica '{args.name}' esiste già. Sovrascriverla?", default=False):
+        return 1
+
+    if args.request_file:
+        request = Path(args.request_file).read_text(encoding="utf-8")
+    elif args.request:
+        request = args.request
+    else:
+        ui.info("Descrivi a parole cosa vuoi nel CSV: cosa rappresenta una riga, quali colonne,")
+        ui.info("regole particolari (es. 'se manca il codice OEM lascia vuoto').")
+        request = ui.ask_text("Richiesta")
+    if not request.strip():
+        ui.error("Serve una descrizione di cosa estrarre (--request \"...\" oppure --request-file file.txt).")
+        return 1
+
+    doc = app.documents.get(args.doc) if args.doc else None
+    primer = ""
+    if doc and doc.info.primer:
+        primer = app.primer_text(doc)
+    pages = None
+    if doc and args.pages:
+        from ragpdf.core.render import parse_page_ranges
+
+        pages = parse_page_ranges(args.pages, doc.info.page_count)
+
+    inp = DraftInput(
+        name=args.name,
+        request=request,
+        example_csv=Path(args.example_csv) if args.example_csv else None,
+        doc=doc,
+        primer_text=primer,
+        pages=pages,
+    )
+    ui.info("Chiedo a Gemini una bozza della specifica...")
+    try:
+        draft_spec(inp, app.client(), target)
+    except SpecError as e:
+        ui.error(f"La bozza generata non è valida anche dopo una correzione:\n{e}")
+        ui.hint(f"Il file è stato salvato comunque, puoi correggerlo a mano: {target}")
+        return 1
+    ui.ok(f"Bozza della specifica salvata: {target}")
+    if inp.pages:
+        ui.info(f"Gemini ha visto le pagine {', '.join(map(str, inp.pages))} del documento.")
+    ui.hint("Rileggila e correggila, poi provala su poche pagine:")
+    ui.hint(f"ragpdf spec check {args.name}")
+    if doc:
+        ui.hint(f"ragpdf index {doc.id} --spec {args.name} --pages <alcune pagine>")
+    return 0
+
+
 def cmd_spec_check(app: App, args: argparse.Namespace) -> int:
     spec = app.load_spec(args.name)
     ui.ok(f"La specifica '{spec.name}' è valida.")
@@ -543,6 +597,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("name", help="nome della specifica (es. ricambi)")
     p.add_argument("--from", dest="template", default="base", help="modello da cui partire (default: base)")
     p.set_defaults(func=cmd_spec_new)
+    p = ssub.add_parser("draft", help="fa scrivere a Gemini la bozza di una specifica partendo da una descrizione")
+    p.add_argument("name", help="nome della specifica (es. ricambi)")
+    p.add_argument("--request", help="cosa vuoi nel CSV, a parole (tra virgolette)")
+    p.add_argument("--request-file", help="file di testo con la richiesta (per descrizioni lunghe)")
+    p.add_argument("--example-csv", help="CSV d'esempio di un indice già fatto (nomi e ordine delle colonne)")
+    p.add_argument("--doc", help="documento da mostrare a Gemini (primer e alcune pagine)")
+    p.add_argument("--pages", help="pagine del documento da mostrare (default: alcune pagine centrali)")
+    p.set_defaults(func=cmd_spec_draft)
     p = ssub.add_parser("check", help="controlla una specifica e mostra cosa verrà estratto")
     p.add_argument("name")
     p.add_argument("--show-prompt", metavar="DOCUMENTO",

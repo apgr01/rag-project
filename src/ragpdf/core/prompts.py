@@ -22,7 +22,7 @@ def load_prompt(name: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def render_prompt(template: str, **values: object) -> str:
+def render_prompt(template: str, /, **values: object) -> str:
     """Sostituisce i segnaposto ``{{nome}}``; un segnaposto senza valore è un errore."""
 
     def replace(match: re.Match[str]) -> str:

@@ -49,3 +49,11 @@ def test_index_without_primer_non_interactive_cancels(run, pdf_factory, capsys):
     run("spec", "new", "s")
     assert run("index", "catalogo") == 1      # senza -y e senza terminale: annulla
     assert "primer generate" in capsys.readouterr().out
+
+
+def test_spec_draft_with_simulated_gemini(run, pdf_factory, tmp_path, monkeypatch):
+    """Il client simulato restituisce un segnaposto non valido: la bozza viene
+    rifiutata, ma il file resta su disco per la correzione manuale."""
+    run("add", str(pdf_factory(pages=6)), "--no-primer")
+    assert run("spec", "draft", "bozza", "--request", "una riga per codice", "--doc", "catalogo") == 1
+    assert (tmp_path / "data" / "specs" / "bozza.yaml").exists()
