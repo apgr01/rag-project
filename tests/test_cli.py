@@ -1,0 +1,51 @@
+"""Prova dei comandi principali come li userebbe una persona (Gemini simulato)."""
+
+import pytest
+
+from ragpdf.cli import main
+
+
+@pytest.fixture
+def run(tmp_path, monkeypatch):
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text(f"workspace_dir: {(tmp_path / 'data').as_posix()}\nrender:\n  dpi: 72\n", encoding="utf-8")
+    monkeypatch.setenv("RAGPDF_FAKE_GEMINI", "1")
+
+    def _run(*args):
+        return main(["--config", str(cfg), *args])
+
+    return _run
+
+
+def test_typical_session(run, pdf_factory, tmp_path, capsys):
+    pdf = pdf_factory("Catalogo Ricambi.pdf", pages=2)
+    assert run("doctor") == 0
+    assert run("add", str(pdf), "--no-primer") == 0
+    assert run("add", str(pdf), "--no-primer") == 1            # duplicato
+    assert run("primer", "generate", "ricambi") == 0
+    assert run("spec", "new", "ricambi") == 0
+    assert run("spec", "check", "ricambi", "--show-prompt", "ricambi", "--page", "2") == 0
+    assert run("index", "ricambi", "-y") == 0
+    assert run("export", "--all") == 0
+    assert run("list") == 0
+    out = capsys.readouterr().out
+    assert "catalogo-ricambi" in out
+    assert (tmp_path / "data" / "exports" / "ricambi" / "catalogo-ricambi.csv").exists()
+
+
+def test_index_without_spec_explains_what_to_do(run, pdf_factory, capsys):
+    run("add", str(pdf_factory()), "--no-primer")
+    assert run("index", "catalogo") == 1
+    assert "ragpdf spec new" in capsys.readouterr().err
+
+
+def test_unknown_document(run, capsys):
+    assert run("index", "nessuno", "--spec", "x") == 1
+    assert "ragpdf add" in capsys.readouterr().err
+
+
+def test_index_without_primer_non_interactive_cancels(run, pdf_factory, capsys):
+    run("add", str(pdf_factory()), "--no-primer")
+    run("spec", "new", "s")
+    assert run("index", "catalogo") == 1      # senza -y e senza terminale: annulla
+    assert "primer generate" in capsys.readouterr().out
