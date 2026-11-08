@@ -1,0 +1,71 @@
+# =============================================================================
+# SPECIFICA DI INDICIZZAZIONE
+# Descrive COSA estrarre dalle pagine del PDF e COME scriverlo nel CSV.
+# Le parti in linguaggio naturale (row, description, instructions) vengono
+# passate a Gemini così come sono: scrivile come le spiegheresti a una persona.
+# Controlla la specifica con:  ragpdf spec check <nome>
+# =============================================================================
+
+name: base
+description: Modello di partenza, da adattare.
+
+# Cosa rappresenta UNA riga del CSV. È la scelta più importante.
+row: >
+  Una riga per ogni articolo (codice prodotto) presente nella pagina.
+
+# Le colonne del CSV, nell'ordine in cui compariranno.
+# Campi possibili per ogni colonna:
+#   name            nome della colonna nel CSV (obbligatorio)
+#   description     cosa contiene, in linguaggio naturale
+#   type            text (default) | integer | number
+#   required        true = una cella vuota viene segnalata nel report anomalie
+#   context         true = dato valido per tutta la pagina (es. intestazione):
+#                   se manca, viene preso dalla pagina precedente
+#   pattern         espressione regolare per controllare il formato (es. '^[A-Z0-9-]+$')
+#   allowed_values  elenco dei valori ammessi
+#   default         valore da usare quando la cella è vuota
+columns:
+  - name: CATEGORIA
+    description: Sezione o categoria di prodotto a cui appartiene la pagina (dal titolo o dall'intestazione).
+    context: true
+  - name: CODICE
+    description: Codice articolo, trascritto esattamente come stampato.
+    required: true
+  - name: DESCRIZIONE
+    description: Descrizione breve dell'articolo, in italiano.
+  - name: CODICI_EQUIVALENTI
+    description: Eventuali codici di riferimento originali (OEM) o equivalenti, separati da " | ".
+
+# Regole libere: hanno la precedenza sulle regole generali.
+instructions: |
+  - Se un'informazione non è presente nella pagina, lascia la cella vuota.
+  - Non includere righe per intestazioni, legende o note a piè di pagina.
+
+# Tabelle di conversione (opzionale). Esempio:
+# mappings:
+#   unita:
+#     description: Sigle delle unità di misura
+#     values:
+#       PZ: pezzo
+#       CF: confezione
+mappings: {}
+
+# CSV d'esempio di un indice già fatto (opzionale): Gemini lo usa come
+# riferimento di formato e stile. Percorso relativo a questo file.
+examples:
+  csv:
+  max_rows: 20
+
+# Pagine da elaborare (opzionale), es. "5-" per saltare le prime 4 pagine.
+pages:
+
+# Se una colonna "context" manca in una pagina, prenderla dalla precedente.
+inherit_context: true
+
+output:
+  delimiter: ","               # "," oppure ";" (Excel in italiano preferisce ";")
+  encoding: utf-8-sig          # utf-8-sig = UTF-8 compatibile con Excel
+  page_column: PAGINA_PDF      # colonna con il numero di pagina del PDF (vuoto = nessuna)
+  source_column: FILE_ORIGINE  # colonna con il nome del file PDF (vuoto = nessuna)
+  deduplicate: true            # elimina le righe identiche
+  sort_by: []                  # es. [CODICE]

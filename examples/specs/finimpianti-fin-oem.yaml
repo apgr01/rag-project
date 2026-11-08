@@ -1,0 +1,150 @@
+# =============================================================================
+# Esempio reale: cataloghi ricambi motore Finimpianti (Lombardini, Kubota, VM, ...)
+# Riproduce l'indice "componenti" prodotto in passato con script dedicati:
+# una riga per ogni coppia codice FIN / codice OEM di ogni motore.
+# =============================================================================
+
+name: finimpianti-fin-oem
+description: Indice componenti Finimpianti, una riga per coppia codice FIN / codice OEM per motore.
+
+row: >
+  Una riga per ogni componente che ha un codice Finimpianti (FIN...) e/o un codice
+  originale OEM, per il motore della pagina. Se nella pagina compaiono più versioni
+  dello stesso motore, una riga per ciascuna versione.
+
+columns:
+  - name: COSTRUTTORE
+    description: Marca del motore, dall'intestazione (es. LOMBARDINI, KUBOTA, VM MOTORI).
+    context: true
+    required: true
+  - name: MOTORE
+    description: Modello del motore, dall'intestazione (es. "3LD 450/S").
+    context: true
+    required: true
+  - name: NR. CILINDRI
+    description: Numero di cilindri (colonna "Cilindri / Cylinders" dell'intestazione).
+    type: integer
+    context: true
+  - name: ALESAGGIO
+    description: Alesaggio in mm (colonna "Alesaggio / Bore").
+    context: true
+  - name: CORSA
+    description: Corsa in mm (colonna "Corsa / Stroke").
+    context: true
+  - name: VERSIONE
+    description: >
+      Versione/matricola del motore (colonna "Versione / Version"), compresa
+      l'eventuale freccia, scritta come "-->" (freccia a destra) o "<--" (freccia a sinistra).
+    context: true
+  - name: TIPO_COMPONENTE
+    description: Tipo di componente, secondo le regole nelle istruzioni.
+    required: true
+  - name: FIN_CODE
+    description: Codice Finimpianti, esattamente come stampato (es. "FIN155PC00", "FIN066MB STD").
+    pattern: '^FIN.*'
+  - name: OEM_CODE
+    description: Codice originale OEM corrispondente (es. "6501.044"); vuoto se non presente.
+
+instructions: |
+  Ogni motore occupa due pagine con la stessa intestazione:
+  - prima pagina: tabelle di pistone (con spinotto e segmenti), cilindro/canna,
+    bronzine (righe CR, MB, PB, TW), valvole (IN/EX) e guidavalvole (IN/EX);
+  - seconda pagina: griglia di icone di guarnizioni, kit e accessori, con il codice
+    OEM sopra e il codice FIN sotto ogni icona, più la tabella delle guarnizioni testa
+    per spessore (0,6 mm ... 1,0 mm) e i riquadri ENGINE KIT ed ELECTRIC KIT.
+
+  Regole per TIPO_COMPONENTE nella PRIMA pagina (in maiuscolo):
+  - pistoni: "PISTONE" per la misura standard (codice che finisce con 00),
+    "PISTONE 05", "PISTONE 10", ... per le maggiorazioni (ultime due cifre del codice);
+  - segmenti: "SEGMENTI", "SEGMENTI 05", "SEGMENTI 10", ... con la stessa logica;
+  - "SPINOTTO" per lo spinotto, "CILINDRO" per cilindro/canna (codici ...SL);
+  - bronzine: "BRONZINA CR", "BRONZINA PB", "SEMIANELLO TW"; per le righe MB numera
+    nell'ordine in cui compaiono: "BRONZINA MB1", "BRONZINA MB2", ...;
+  - valvole e guide: "VALVOLA IN", "VALVOLA EX", "GUIDA IN", "GUIDA EX".
+
+  Regole per TIPO_COMPONENTE nella SECONDA pagina: usa la tabella "componenti"
+  applicandola alla sigla finale del codice FIN (es. FIN102AF -> AF -> "Filtro aria";
+  FIN270HG -> guarnizione testa: usa "Guarnizione testa <spessore> mm" con lo spessore
+  della riga, es. "Guarnizione testa 0,6 mm"). Se la sigla non è in tabella, scrivi la
+  sigla tra parentesi quadre, es. "[XY]".
+
+  Altre regole:
+  - Una riga solo se c'è almeno un codice (FIN o OEM). Celle grigie o vuote = componente
+    non previsto per quel motore: nessuna riga.
+  - Se un codice OEM è composto (es. "8676.098 + 1610.024") trascrivilo per intero.
+  - Ignora copertina, indici, elenco motori, pagine "Come leggere il catalogo" e legende.
+
+mappings:
+  componenti:
+    description: Sigla finale del codice FIN → tipo componente (seconda pagina)
+    values:
+      CGA: Guarnizione testa completa
+      CGB: Guarnizione basamento
+      SM: Serie guarnizioni motore
+      RT-LV: Guarnizione lato volano
+      RT-LD: Guarnizione lato distribuzione
+      CO: Bronzina di banco
+      CB: Bronzina di biella
+      IG: Valvola aspirazione (IN)
+      EG: Valvola scarico (EX)
+      KIT: Kit motore completo
+      ME: Kit elettrico
+      AF: Filtro aria
+      PF: Filtro carburante
+      NF: Filtro olio
+      CFA: Filtro aria (cartuccia)
+      FE: Elemento filtrante
+      OF: Filtro olio (esterno)
+      OL: Olio motore
+      SF: Filtro carburante secondario
+      KR: Albero a gomiti
+      CS: Canna cilindro / Sleeve
+      CP: Pistone
+      SK: Kit segmenti
+      CK: Kit pistone (pistone + segmenti + spinotto)
+      CH: Testata cilindro
+      RK: Kit revisione motore
+      OP: Pompa olio
+      FP: Pompa carburante
+      JP: Pompa iniezione
+      "NO": Ugello / Nozzle
+      E: Iniettore
+      RP: Pompa iniezione rotativa
+      TS: Termostato
+      NH: Manicotto acqua
+      ST: Motorino di avviamento
+      SI: Motorino di avviamento (alt.)
+      GP: Candeletta (Glow Plug)
+      KK: Candela / Kit candele
+      VR: Regolatore di tensione
+      TL: Alternatore
+      PM: Magnete / Volano magnetico
+      LA: Lampada / Spia
+      LS: Interruttore livello olio
+      KL: Bobina accensione
+      CL: Frizione
+      PU: Puleggia
+      TK: Cinghia / Kit distribuzione
+      CN: Cono / Connettore
+      DV: Valvola di mandata
+      VA: Valvola (generica)
+      SR: Regolatore di giri
+
+# Facoltativo: un estratto di un indice già fatto, come riferimento di formato.
+examples:
+  csv:
+  max_rows: 25
+
+# Nel catalogo Lombardini le schede motore iniziano dopo indice e istruzioni:
+# indica qui l'intervallo per non spendere richieste sulle pagine introduttive.
+pages:
+
+inherit_context: true
+
+output:
+  delimiter: ","
+  encoding: utf-8-sig
+  page_column: Pagina_PDF_Reale
+  source_column: File_origine
+  deduplicate: true
+  sort_by: [FIN_CODE, COSTRUTTORE, MOTORE]
