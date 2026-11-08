@@ -103,6 +103,6 @@ def table(headers: list[str], rows: list[list[object]]) -> None:
     cells = [[str(c) for c in headers]] + [[str(c) for c in r] for r in rows]
     widths = [max(len(r[i]) for r in cells) for i in range(len(headers))]
     for n, r in enumerate(cells):
-        print("  " + "  ".join(c.ljust(w) for c, w in zip(r, widths)))
+        print("  " + "  ".join(c.ljust(w) for c, w in zip(r, widths, strict=True)))
         if n == 0:
             print("  " + "  ".join("-" * w for w in widths))

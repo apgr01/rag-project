@@ -93,12 +93,14 @@ def load_api_keys(env_file: Path = ENV_FILE) -> list[str]:
         values.update({k: v for k, v in dotenv_values(env_file).items() if v})
     values.update({k: v for k, v in os.environ.items() if k.startswith("GEMINI_API_KEY") and v})
 
-    keys: list[str] = []
-    for name in sorted(values):
-        if name == "GEMINI_API_KEYS":
-            keys.extend(k.strip() for k in values[name].split(","))
-        elif name.startswith("GEMINI_API_KEY"):
-            keys.append(values[name].strip())
+    # Prima le chiavi singole in ordine di nome (_01, _02, ...), poi l'elenco GEMINI_API_KEYS.
+    keys: list[str] = [
+        values[name].strip()
+        for name in sorted(values)
+        if name.startswith("GEMINI_API_KEY") and name != "GEMINI_API_KEYS"
+    ]
+    if "GEMINI_API_KEYS" in values:
+        keys.extend(k.strip() for k in values["GEMINI_API_KEYS"].split(","))
 
     unique: list[str] = []
     for k in keys:

@@ -169,15 +169,12 @@ def cmd_doctor(app: App, args: argparse.Namespace) -> int:
     ui.info(f"Cartella del progetto: {PROJECT_ROOT}")
     ui.info(f"Workspace dati:        {app.workspace.root}")
 
-    if sys.version_info < (3, 11):
-        ui.error("Serve Python 3.11 o successivo.")
-        problems += 1
-
     if app.simulated:
         ui.warn("Modalità SIMULATA attiva (RAGPDF_FAKE_GEMINI): Gemini non verrà chiamato.")
     keys = load_api_keys()
     if keys:
-        ui.ok(f"Chiavi API Gemini trovate: {len(keys)} (richieste parallele: {app.config.indexing.max_workers or len(keys)})")
+        parallel = app.config.indexing.max_workers or len(keys)
+        ui.ok(f"Chiavi API Gemini trovate: {len(keys)} (richieste parallele: {parallel})")
     elif not app.simulated:
         ui.error(f"Nessuna chiave API Gemini. Crea il file {ENV_FILE.name} partendo da .env.example.")
         ui.hint("Le chiavi si ottengono gratuitamente su https://aistudio.google.com/apikey")

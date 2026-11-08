@@ -37,7 +37,7 @@ class VectorIndex:
     def query(self, text: str, n_results: int, where: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         res = self.collection.query(query_texts=[text], n_results=n_results, where=where)
         hits = []
-        for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0]):
+        for doc, meta, dist in zip(res["documents"][0], res["metadatas"][0], res["distances"][0], strict=True):
             hits.append({"text": doc, "metadata": meta, "distance": dist})
         return hits
 
