@@ -112,3 +112,32 @@ def test_bad_request_fails_immediately():
 def test_no_keys():
     with pytest.raises(GeminiError, match="Nessuna chiave"):
         GeminiClient([], GeminiSettings())
+
+
+def test_pdf_upload_waits_until_active(tmp_path):
+    from types import SimpleNamespace as NS
+
+    states = iter(["PROCESSING", "PROCESSING", "ACTIVE"])
+
+    class Files:
+        def upload(self, file):
+            return NS(name="files/1", state=NS(name=next(states)))
+
+        def get(self, name):
+            return NS(name=name, state=NS(name=next(states)))
+
+        def delete(self, name):
+            self.deleted = name
+
+    class Models:
+        def generate_content(self, model, contents, config):
+            return NS(text=" primer ")
+
+    sdk = NS(files=Files(), models=Models())
+    clock = FakeClock()
+    client = GeminiClient(["k"], GeminiSettings(), client_factory=lambda k: sdk,
+                          sleep=clock.sleep, clock=clock.clock, log=lambda m: None)
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF")
+    assert client.generate_text_from_pdf("p", pdf) == "primer"
+    assert clock.sleeps == [3, 3] and sdk.files.deleted == "files/1"

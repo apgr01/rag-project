@@ -32,6 +32,7 @@ class ExportResult:
     csv_path: Path
     anomalies_path: Path | None
     index: AssembledIndex
+    stale: bool = False   # specifica/primer cambiati dopo l'estrazione
 
 
 class App:
@@ -105,7 +106,15 @@ class App:
         index = assemble(spec, results, doc.info.source_filename, expected, manifest.failed_pages())
         csv_path = self.workspace.exports_dir / spec.name / f"{doc.id}.csv"
         anomalies = write_index(index, spec, csv_path)
-        return ExportResult(csv_path, anomalies, index)
+        return ExportResult(csv_path, anomalies, index, stale=self._is_stale(doc, spec, manifest))
+
+    def _is_stale(self, doc: Document, spec: IndexingSpec, manifest: Manifest) -> bool:
+        try:
+            primer = self.primer_text(doc) if doc.info.primer else ""
+        except FileNotFoundError:
+            return False
+        current = spec.extraction_fingerprint(primer, self.config.gemini.model)
+        return manifest.meta.get("fingerprint") not in (None, current)
 
     def export_merged(self, spec: IndexingSpec, docs: list[Document]) -> ExportResult:
         parts = [self.export(d, spec).index for d in docs]

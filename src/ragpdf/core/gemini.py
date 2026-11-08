@@ -313,6 +313,22 @@ class GeminiClient:
 
         return self._call(action)
 
+    def _wait_until_active(self, client: Any, uploaded: Any, timeout: float = 180) -> Any:
+        """Attende che Gemini abbia elaborato il file caricato (stato ACTIVE)."""
+        waited = 0.0
+        while True:
+            state = getattr(uploaded, "state", None)
+            state = str(getattr(state, "name", state) or "").upper()
+            if "PROCESSING" not in state:
+                if "FAILED" in state:
+                    raise GeminiError(f"Gemini non è riuscito a elaborare il file {uploaded.name}.")
+                return uploaded
+            if waited >= timeout:
+                raise ConnectionError("il file caricato non è diventato disponibile in tempo")
+            self._sleep(3)
+            waited += 3
+            uploaded = client.files.get(name=uploaded.name)
+
     def generate_text_from_pdf(self, prompt: str, pdf_path: Path, model: str | None = None) -> str:
         """Invia un intero PDF (tramite la Files API di Gemini) insieme al prompt."""
         model = model or self.settings.text_model
@@ -321,6 +337,7 @@ class GeminiClient:
             # Il file caricato appartiene alla chiave che lo carica: l'upload va
             # quindi fatto qui dentro, con il client della chiave scelta.
             uploaded = client.files.upload(file=str(pdf_path))
+            uploaded = self._wait_until_active(client, uploaded)
             try:
                 response = client.models.generate_content(
                     model=model, contents=[uploaded, prompt], config=self._config()

@@ -126,3 +126,11 @@ def test_malformed_model_output_is_tolerated(app, pdf_factory):
     app.extractor().run(doc, SPEC, "", show_progress=False)
     rows = app.export(doc, SPEC).index.rows
     assert [r["CODICE"] for r in rows] == ["123", "X"]
+
+
+def test_export_flags_stale_results(app, pdf_factory):
+    doc = app.documents.add(pdf_factory(pages=1))
+    app.extractor().run(doc, SPEC, "", show_progress=False)
+    assert not app.export(doc, SPEC).stale
+    changed = SPEC.model_copy(update={"instructions": "nuova regola"})
+    assert app.export(doc, changed).stale

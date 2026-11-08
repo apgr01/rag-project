@@ -44,7 +44,7 @@ Decisi insieme e da rispettare in tutti gli step:
   d'esempio + pagine campione.
 - [x] **Esperienza d'uso**: CLI guidata (`doctor`, `add`, `list`, domande quando manca
   qualcosa, stima dei tempi, ripresa), guida passo passo.
-- [x] **Test**: 44 test senza rete con Gemini simulato.
+- [x] **Test**: 46 test senza rete con Gemini simulato.
 - [ ] **Step 3 — Qualità del retrieval (RAG)**: embedding multilingue locali configurabili,
   soglia di rilevanza.
 

@@ -152,6 +152,10 @@ def _print_export(app: App, result, doc_label: str) -> None:
         f"/{s.get('pagine_previste', 0)}   duplicati rimossi: {s.get('duplicati_rimossi', 0)}"
         f"   valori ereditati dalla pagina precedente: {s.get('valori_ereditati', 0)}"
     )
+    if result.stale:
+        ui.warn("La specifica, il primer o il modello sono cambiati dopo l'estrazione: il CSV usa i "
+                "risultati ottenuti con le regole precedenti.")
+        ui.hint(f"Per applicare le nuove regole rilancia: ragpdf index {doc_label} --spec <nome>")
     if result.anomalies_path:
         ui.warn(
             f"{s.get('errori', 0)} errori e {s.get('avvisi', 0)} avvisi da controllare: {result.anomalies_path}"
