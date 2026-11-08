@@ -9,7 +9,7 @@ from google.genai import types
 from dotenv import load_dotenv
 from pydantic import BaseModel
 
-from common.paths import ENV_FILE
+from ragpdf.core.paths import ENV_FILE
 
 # Carica espressamente il file .env dalla radice del progetto
 load_dotenv(dotenv_path=ENV_FILE)

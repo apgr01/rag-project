@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 import chromadb
 from chromadb.config import Settings
 
-from common.paths import VECTOR_STORE_DIR, PROJECT_ROOT
+from ragpdf.core.paths import VECTOR_STORE_DIR, PROJECT_ROOT
 
 class VectorStore:
     def __init__(self, db_path: Optional[str] = None, collection_name: str = "catalog_documents"):

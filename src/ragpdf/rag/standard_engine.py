@@ -1,8 +1,8 @@
 from typing import Dict, Any, List
-from rag.base import BaseQueryEngine
-from common.config import Config
-from common.gemini_client import GeminiClient
-from common.vector_store import VectorStore
+from ragpdf.rag.base_engine import BaseQueryEngine
+from ragpdf.core.config import Config
+from ragpdf.core.gemini_client import GeminiClient
+from ragpdf.core.vector_store import VectorStore
 
 RAG_PROMPT_TEMPLATE = """Sei un assistente tecnico esperto per cataloghi industriali. 
 Rispondi alla domanda dell'utente basandoti ESCLUSIVAMENTE sul contesto fornito, estratto dalle descrizioni delle pagine del catalogo.

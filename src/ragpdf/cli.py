@@ -2,11 +2,11 @@ import argparse
 import sys
 from pathlib import Path
 
-from common.config import load_config
-from common.gemini_client import GeminiClient
-from common.vector_store import VectorStore
-from ingestion.standard_ingestor import StandardIngestor
-from rag.standard_engine import StandardQueryEngine
+from ragpdf.core.config import load_config
+from ragpdf.core.gemini_client import GeminiClient
+from ragpdf.core.vector_store import VectorStore
+from ragpdf.rag.standard_ingestor import StandardIngestor
+from ragpdf.rag.standard_engine import StandardQueryEngine
 
 
 def parse_args():
@@ -61,7 +61,7 @@ def main():
         print("=" * 50 + "\n")
 
     elif args.command == "list":
-        from common.paths import DESCRIPTIONS_DIR
+        from ragpdf.core.paths import DESCRIPTIONS_DIR
         import json as _json
 
         manifests = sorted(DESCRIPTIONS_DIR.glob("*/manifest.json"))

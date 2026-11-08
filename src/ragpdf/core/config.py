@@ -2,7 +2,7 @@ import yaml
 from pathlib import Path
 from pydantic import BaseModel, Field
 
-from common.paths import DEFAULT_CONFIG_FILE, PROJECT_ROOT
+from ragpdf.core.paths import DEFAULT_CONFIG_FILE, PROJECT_ROOT
 
 class AppSettings(BaseModel):
     name: str = "RAG Application"

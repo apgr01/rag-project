@@ -8,11 +8,11 @@ from datetime import datetime, timezone
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from ingestion.base import BaseIngestor
-from common.config import Config
-from common.gemini_client import GeminiClient
-from common.vector_store import VectorStore
-from common.paths import IMAGES_DIR, DESCRIPTIONS_DIR, PROJECT_ROOT
+from ragpdf.rag.base_ingestor import BaseIngestor
+from ragpdf.core.config import Config
+from ragpdf.core.gemini_client import GeminiClient
+from ragpdf.core.vector_store import VectorStore
+from ragpdf.core.paths import IMAGES_DIR, DESCRIPTIONS_DIR, PROJECT_ROOT
 
 PROMPT_TEMPLATE = """Ti fornisco il contesto generale di un catalogo PDF e l'immagine di una sua pagina specifica.
 

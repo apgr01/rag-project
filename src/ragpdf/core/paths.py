@@ -1,7 +1,7 @@
 from pathlib import Path
 
 # Determina in modo assoluto la radice del progetto
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 # File e cartelle di configurazione
 ENV_FILE = PROJECT_ROOT / ".env"

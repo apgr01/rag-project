@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rag-project"
-version = "0.1.0"
+version = "0.2.0.dev0"
 description = "RAG vision-first per documenti PDF: ogni pagina viene descritta da Gemini Vision e indicizzata per la ricerca semantica."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,8 +25,11 @@ dev = [
     "ruff>=0.6",
 ]
 
+[project.scripts]
+ragpdf = "ragpdf.cli:main"
+
 [tool.setuptools.packages.find]
-include = ["common*", "ingestion*", "rag*"]
+where = ["src"]
 
 [tool.ruff]
 line-length = 100
