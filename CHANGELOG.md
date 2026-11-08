@@ -3,21 +3,40 @@
 Tutte le modifiche rilevanti al progetto sono documentate qui.
 Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
 
-## [Non rilasciato]
+## [Non rilasciato] — 0.2.0
 
 ### Aggiunto
-- `pyproject.toml` con dipendenze dirette, extra di sviluppo e configurazione di ruff.
-- `docs/ROADMAP.md`: visione, requisiti di progetto, piano della Fase 0, problemi noti.
-- `docs/primer_prompt.md`: prompt per generare il primer di un documento.
-- Questo changelog.
+- **Modalità indicizzazione**: da un PDF a un CSV secondo una *specifica* YAML scritta
+  dall'utente (cosa rappresenta una riga, colonne, istruzioni libere, tabelle di
+  conversione, CSV d'esempio). Estrazione strutturata pagina per pagina con JSON Schema,
+  contesto di pagina ereditato, normalizzazione, duplicati, ordinamento, report anomalie,
+  unione di più documenti (`TUTTI.csv`).
+- **Bozza automatica del primer** a partire dal PDF intero (`ragpdf primer generate`).
+- **Bozza automatica della specifica** da una descrizione a parole, con CSV d'esempio e
+  pagine campione (`ragpdf spec draft`).
+- Comando `ragpdf` con CLI guidata: `doctor`, `add`, `list`, `remove`, `primer`, `spec`,
+  `index`, `export`, `rag`.
+- Workspace dati (`data/`) separato dall'applicazione, con registro dei documenti
+  (id leggibile e impronta SHA-256 per riconoscere i duplicati).
+- Client Gemini con pool di chiavi, ritmo per chiave condiviso tra i thread, gestione
+  degli errori per codice HTTP, arresto ordinato a quote esaurite.
+- Client Gemini simulato (`RAGPDF_FAKE_GEMINI=1`) e 44 test automatici senza rete.
+- Specifiche d'esempio (`examples/specs/`) e guida passo passo
+  (`docs/GUIDA_INDICIZZAZIONE.md`), documento di architettura (`docs/ARCHITETTURA.md`).
+- `pyproject.toml`, roadmap, changelog.
 
 ### Modificato
-- README riscritto in base allo stato reale del codice.
-- `.gitignore` riorganizzato; `docs/` ora è versionata.
-- `.env.example` documentato.
+- Codice raccolto nel pacchetto `src/ragpdf` (prima: pacchetti `common`, `ingestion`, `rag`).
+- Modalità RAG divisa in fasi rilanciabili (`rag describe`, `rag build`, `rag ask`), con
+  `upsert` nell'indice: le pagine rigenerate lo aggiornano.
+- Prompt spostati in `configs/prompts/` e resi generici.
+- Configurazione ripulita e validata; rimosse le opzioni inutilizzate.
+- ChromaDB diventa opzionale: `pip install -e ".[rag]"`.
+- README riscritto; `.gitignore` riorganizzato e `docs/` versionata.
 
 ### Rimosso
-- `requirements.txt` (codificato in UTF-16 e con dipendenze mancanti).
+- `main.py` (sostituito dal comando `ragpdf`), `requirements.txt` (UTF-16, dipendenze
+  mancanti), interfacce astratte non allineate alle implementazioni.
 - File generati tracciati per errore: bytecode Python e database ChromaDB.
 
 ## [0.1.0] — 2026-10-06

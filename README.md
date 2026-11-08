@@ -1,133 +1,133 @@
-# rag-project
+# rag-project — `ragpdf`
 
-Sistema **RAG (Retrieval-Augmented Generation) vision-first** per interrogare documenti PDF
-in linguaggio naturale — pensato per documenti in cui tabelle, schemi e immagini contano
-quanto il testo (es. cataloghi tecnici di ricambi).
+Strumento a riga di comando per **estrarre dati da documenti PDF con Gemini**, pensato per
+documenti in cui tabelle, schemi e immagini contano quanto il testo (es. cataloghi tecnici
+di ricambi).
 
-> Progetto personale a scopo didattico. Lo stato di avanzamento e i prossimi passi sono in
-> [`docs/ROADMAP.md`](docs/ROADMAP.md).
+Due modalità, che condividono la stessa base:
+
+| Modalità | A cosa serve | Comandi |
+|---|---|---|
+| **Indicizzazione** | Produrre un **CSV** dal PDF, con le righe e le colonne che decidi tu | `ragpdf index`, `ragpdf export` |
+| **RAG** | Fare **domande** in linguaggio naturale sui documenti | `ragpdf rag ...` |
+
+> Progetto personale a scopo didattico. Stato e prossimi passi: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+> Come è fatto dentro: [`docs/ARCHITETTURA.md`](docs/ARCHITETTURA.md).
 
 ## Come funziona
 
-Invece di estrarre il testo dal PDF (che perde tabelle e disegni), ogni pagina viene
-trasformata in immagine e "letta" da un modello multimodale:
+Il PDF non viene "letto" come testo (si perderebbero tabelle e disegni): ogni pagina
+diventa un'immagine e la legge Gemini, guidato da due documenti scritti in linguaggio
+naturale.
+
+- **Primer**: spiega *com'è fatto il documento* (struttura, sigle, convenzioni delle
+  tabelle). Serve perché Gemini vede una pagina alla volta. Il programma ne genera una bozza
+  da solo.
+- **Specifica di indicizzazione**: spiega *cosa vuoi nel CSV* (cosa rappresenta una riga,
+  quali colonne, regole come "se manca il codice lascia vuoto"). Gemini può scriverne una
+  bozza partendo da una tua descrizione.
 
 ```
-PDF ──► immagini PNG ──► Gemini Vision + primer ──► descrizione testuale per pagina
-                                                              │
-                         domanda ──► ricerca semantica ◄── ChromaDB (embedding)
-                                            │
-                                            ▼
-                              Gemini genera la risposta citando file e pagina
+PDF ─► immagini delle pagine ─► Gemini (pagina + primer + specifica) ─► righe JSON per pagina
+                                                                            │
+                         CSV + report anomalie ◄─ assemblaggio e controlli ◄─┘
 ```
 
-1. **Rendering** — ogni pagina del PDF diventa un PNG (PyMuPDF).
-2. **Descrizione** — Gemini riceve l'immagine di *una* pagina insieme al **primer**:
-   un testo che spiega com'è fatto il documento nel suo complesso (struttura, sigle,
-   convenzioni delle tabelle). Senza il primer, una pagina isolata spesso non è
-   interpretabile.
-3. **Indicizzazione** — le descrizioni vengono salvate su disco e indicizzate in ChromaDB.
-4. **Interrogazione** — la domanda recupera le pagine più pertinenti e Gemini risponde
-   basandosi solo su quelle, citando le fonti.
-
-L'avanzamento della fase 2 è tracciato in un `manifest.json` per documento: se il lavoro
-si interrompe (es. quota giornaliera API esaurita), al rilancio riparte dalle pagine
-mancanti.
-
-## Requisiti
-
-- Python **3.11+**
-- Almeno una **API key Gemini** ([Google AI Studio](https://aistudio.google.com/apikey))
+Il lavoro è **riprendibile**: se si interrompe (quota API esaurita, Ctrl+C, rete), al
+rilancio riparte dalle pagine mancanti. Cambiare il formato del CSV non richiede di
+richiamare Gemini.
 
 ## Installazione
+
+Requisiti: **Python 3.11+** e almeno una **chiave API Gemini**
+([Google AI Studio](https://aistudio.google.com/apikey)).
 
 ```bash
 git clone https://github.com/apgr01/rag-project.git
 cd rag-project
-
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-pip install -e .                 # aggiungi ".[dev]" per gli strumenti di sviluppo
 ```
 
-Copia il file di esempio delle chiavi e inserisci la tua:
+Attiva l'ambiente virtuale (Windows PowerShell: `.venv\Scripts\Activate.ps1`; macOS/Linux:
+`source .venv/bin/activate`), poi:
 
 ```bash
-cp .env.example .env
+pip install -e .
 ```
 
-## Utilizzo
+Per usare anche la modalità RAG: `pip install -e ".[rag]"`.
 
-### 1. Prepara il primer del documento
+Copia `.env.example` in `.env` e inserisci la tua chiave (`GEMINI_API_KEY_01=...`). Con più
+chiavi (`_02`, `_03`, ...) le pagine vengono elaborate in parallelo.
 
-Il primer è un file Markdown in `configs/primers/` che descrive il documento. Si scrive una
-volta per ogni *tipo* di documento (stesso layout ⇒ stesso primer). Per generarlo si può
-usare un assistente AI con il prompt in [`docs/primer_prompt.md`](docs/primer_prompt.md),
-allegando il PDF completo.
-
-Poi indica il primer da usare in `configs/default.yaml` (`ingestion.primer_path`).
-
-### 2. Ingestion
+Controlla che sia tutto pronto:
 
 ```bash
-python main.py ingest --file "data/pdfs/Mio catalogo.pdf"
+ragpdf doctor --online
 ```
 
-| Opzione   | Effetto                                                      |
-|-----------|--------------------------------------------------------------|
-| `--force` | Rigenera immagini e descrizioni anche se già presenti         |
-| `--rpm N` | Pausa tra le richieste di ciascun worker (default 10/min)     |
-
-### 3. Interrogazione
+## Uso rapido: dal PDF al CSV
 
 ```bash
-python main.py query "Qual è il codice del pistone per il motore D905?"
-python main.py query "..." --source "Mio catalogo.pdf"   # limita a un documento
+ragpdf add "C:\cataloghi\Catalogo Lombardini.pdf"      # aggiunge il PDF (e propone il primer)
+ragpdf primer generate lombardini                       # bozza del primer: poi rileggila
+ragpdf spec draft ricambi --doc lombardini --request "Una riga per ogni codice ..."
+ragpdf spec check ricambi                               # controlla la specifica
+ragpdf index lombardini --spec ricambi --pages 40-43    # prova su poche pagine
+ragpdf index lombardini --spec ricambi                  # tutto il documento
 ```
 
-### 4. Documenti indicizzati
+Il CSV finisce in `data/exports/<specifica>/<documento>.csv`, con accanto
+`<documento>_anomalie.csv` (righe e pagine da controllare a mano).
 
-```bash
-python main.py list
-```
+La guida completa, passo per passo e con esempi, è in
+[`docs/GUIDA_INDICIZZAZIONE.md`](docs/GUIDA_INDICIZZAZIONE.md).
 
-## Configurazione
+## Comandi
 
-`configs/default.yaml` contiene i parametri principali (modelli Gemini, DPI di rendering,
-numero di risultati recuperati, percorso del primer). Viene validato all'avvio con Pydantic.
+| Comando | Cosa fa |
+|---|---|
+| `ragpdf doctor [--online]` | Verifica chiavi, cartelle, documenti (e una richiesta reale a Gemini) |
+| `ragpdf add <pdf>...` | Aggiunge PDF al workspace |
+| `ragpdf list` | Documenti, primer associati, avanzamento delle indicizzazioni |
+| `ragpdf remove <doc>` | Elimina un documento e i suoi risultati |
+| `ragpdf primer generate <doc>` | Bozza del primer scritta da Gemini leggendo tutto il PDF |
+| `ragpdf primer set <doc> <primer>` | Associa un primer esistente (o un file `.md`) |
+| `ragpdf primer list` | Elenca i primer |
+| `ragpdf spec new <nome> [--from modello]` | Nuova specifica da un modello (`base`, `finimpianti-fin-oem`) |
+| `ragpdf spec draft <nome> --request "..."` | Bozza della specifica scritta da Gemini |
+| `ragpdf spec check <nome> [--show-prompt <doc>]` | Valida la specifica e mostra cosa verrà chiesto a Gemini |
+| `ragpdf index <doc>... --spec <nome>` | Indicizza ed esporta il CSV (`--pages`, `--force`, `--all`, `-y`) |
+| `ragpdf export [--all] --spec <nome>` | Rigenera i CSV senza chiamare Gemini; con più documenti anche `TUTTI.csv` |
+| `ragpdf rag describe/build/ask` | Modalità domande e risposte |
 
-Le chiavi API stanno in `.env` (mai versionato). Se ne indichi più d'una
-(`GEMINI_API_KEY_01`, `_02`, ...), l'ingestion le usa in parallelo e passa alla successiva
-quando una esaurisce la quota.
+Ogni comando ha il suo aiuto: `ragpdf <comando> --help`.
 
-## Struttura del progetto
+Per provare tutto **senza chiavi e senza consumare quota**, imposta la variabile
+d'ambiente `RAGPDF_FAKE_GEMINI=1`: le risposte di Gemini vengono simulate.
+
+## Dove stanno i file
 
 ```
 rag-project/
-├── main.py                  # CLI: ingest, query, list
-├── common/                  # componenti condivisi
-│   ├── paths.py             #   percorsi ancorati alla root del progetto
-│   ├── config.py            #   caricamento e validazione della configurazione
-│   ├── gemini_client.py     #   client Gemini con rotazione delle chiavi
-│   └── vector_store.py      #   wrapper ChromaDB
-├── ingestion/               # PDF → immagini → descrizioni → indice
-├── rag/                     # retrieval + generazione della risposta
-│   └── store/               #   database vettoriale (generato, non versionato)
+├── src/ragpdf/          codice (core/, indexing/, rag/, cli.py)
 ├── configs/
-│   ├── default.yaml         # configurazione
-│   └── primers/             # un primer per tipo di documento
-├── data/                    # PDF, immagini, descrizioni (generato, non versionato)
-└── docs/                    # roadmap e documentazione
+│   ├── default.yaml     configurazione (modelli, DPI, ritmo delle richieste, ...)
+│   └── prompts/         prompt inviati a Gemini, modificabili
+├── examples/            primer e specifiche d'esempio
+├── tests/               test automatici (Gemini simulato)
+├── docs/                documentazione
+└── data/                IL TUO WORKSPACE (non versionato)
+    ├── documents/<id>/  PDF, immagini delle pagine, risultati per pagina
+    ├── primers/         primer
+    ├── specs/           specifiche di indicizzazione
+    └── exports/         CSV prodotti
 ```
 
-## Limitazioni note
+## Sviluppo
 
-Il progetto è in fase di consolidamento (vedi [roadmap](docs/ROADMAP.md), *Fase 0*).
-Le principali limitazioni attuali:
-
-- il primer è unico per tutto il progetto: per un documento di tipo diverso va cambiato
-  in configurazione;
-- il modello di embedding di default di ChromaDB è addestrato su testo inglese, mentre le
-  descrizioni sono in italiano: la qualità del retrieval ne risente;
-- rigenerare una pagina con `--force` non aggiorna la versione già presente nell'indice.
+```bash
+pip install -e ".[dev]"
+pytest
+ruff check src tests
+```

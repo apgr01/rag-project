@@ -6,10 +6,12 @@ gli fornisce le "istruzioni per l'uso" del documento.
 
 Per crearne uno: apri una chat con un assistente AI che accetti PDF, allega il documento
 completo e incolla il prompt qui sotto. Rivedi il risultato, rispondi agli eventuali dubbi
-che il modello segnala, e salva il primer finale in `configs/primers/<nome>.md`.
+che il modello segnala, e salva il primer finale in `data/primers/<nome>.md` (poi `ragpdf primer set <documento> <nome>`).
 
-> Nella roadmap è prevista la generazione automatica della bozza del primer direttamente
-> dal programma (vedi `docs/ROADMAP.md`).
+> Il programma ora genera da solo la bozza del primer con `ragpdf primer generate <documento>`,
+> usando una versione aggiornata di questo prompt (`configs/prompts/primer_generate.md`).
+> Il procedimento manuale descritto qui resta utile se vuoi lavorare il primer in una chat,
+> dialogando con l'AI sui punti dubbi.
 
 ---
 
