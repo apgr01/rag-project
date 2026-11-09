@@ -21,14 +21,16 @@ diventa un'immagine e la legge Gemini, guidato da due documenti scritti in lingu
 naturale.
 
 - **Primer**: spiega *com'è fatto il documento* (struttura, sigle, convenzioni delle
-  tabelle). Serve perché Gemini vede una pagina alla volta. Il programma ne genera una bozza
-  da solo.
+  tabelle). Serve perché Gemini vede una pagina alla volta.
 - **Specifica di indicizzazione**: spiega *cosa vuoi nel CSV* (cosa rappresenta una riga,
-  quali colonne, regole come "se manca il codice lascia vuoto"). Gemini può scriverne una
-  bozza partendo da una tua descrizione.
+  quali colonne, regole come "se manca il codice lascia vuoto").
+
+Non devi scriverli tu: con la **configurazione guidata** (`ragpdf setup`) Gemini guarda
+alcune pagine scelte da te, propone primer e specifica, prova l'estrazione su poche pagine
+e tu correggi a parole finché il risultato non ti convince.
 
 ```
-PDF ─► immagini delle pagine ─► Gemini (pagina + primer + specifica) ─► righe JSON per pagina
+PDF ─► pagina (immagine + testo) ─► Gemini (pagina + primer + specifica) ─► righe JSON per pagina
                                                                             │
                          CSV + report anomalie ◄─ assemblaggio e controlli ◄─┘
 ```
@@ -69,12 +71,23 @@ ragpdf doctor --online
 ## Uso rapido: dal PDF al CSV
 
 ```bash
-ragpdf add "C:\cataloghi\Catalogo Lombardini.pdf"      # aggiunge il PDF (e propone il primer)
-ragpdf primer generate lombardini                       # bozza del primer: poi rileggila
-ragpdf spec draft ricambi --doc lombardini --request "Una riga per ogni codice ..."
-ragpdf spec check ricambi                               # controlla la specifica
-ragpdf index lombardini --spec ricambi --pages 40-43    # prova su poche pagine
-ragpdf index lombardini --spec ricambi                  # tutto il documento
+ragpdf setup "C:\cataloghi\Catalogo Lombardini.pdf"   # configurazione guidata con anteprima
+ragpdf index lombardini                                 # indicizzazione completa
+```
+
+Una sessione di `setup`, in breve:
+
+```
+Pagine da mostrare a Gemini [1-6, 13, 25, ...]: 1-4, 38-41, 120
+Obiettivo: una riga per ogni coppia FIN/OEM di ogni motore, con i dati dell'intestazione
+CSV di riferimento: C:\indici\indice_componenti.csv
+
+=== Versione 1 ===   (riepilogo di Gemini, colonne proposte, domande)
+=== Prova di estrazione sulle pagine 38-39 ===   (righe estratte, confronto con il riferimento)
+
+Correzione> il TIPO_COMPONENTE deve essere in maiuscolo come nel riferimento
+=== Versione 2 ===   ...
+Correzione> /ok
 ```
 
 Il CSV finisce in `data/exports/<specifica>/<documento>.csv`, con accanto
@@ -88,17 +101,18 @@ La guida completa, passo per passo e con esempi, è in
 | Comando | Cosa fa |
 |---|---|
 | `ragpdf doctor [--online]` | Verifica chiavi, cartelle, documenti (e una richiesta reale a Gemini) |
+| `ragpdf setup <doc o pdf>` | **Configurazione guidata**: primer e specifica con Gemini, anteprima e correzioni a parole |
 | `ragpdf add <pdf>...` | Aggiunge PDF al workspace |
 | `ragpdf list` | Documenti, primer associati, avanzamento delle indicizzazioni |
 | `ragpdf remove <doc>` | Elimina un documento e i suoi risultati |
-| `ragpdf primer generate <doc>` | Bozza del primer scritta da Gemini leggendo tutto il PDF |
+| `ragpdf primer generate <doc> [--pages ...]` | Bozza del primer scritta da Gemini (PDF intero o pagine scelte) |
 | `ragpdf primer set <doc> <primer>` | Associa un primer esistente (o un file `.md`) |
 | `ragpdf primer list` | Elenca i primer |
 | `ragpdf spec new <nome> [--from modello]` | Nuova specifica da un modello (`base`, `finimpianti-fin-oem`) |
 | `ragpdf spec draft <nome> --request "..."` | Bozza della specifica scritta da Gemini |
 | `ragpdf spec check <nome> [--show-prompt <doc>]` | Valida la specifica e mostra cosa verrà chiesto a Gemini |
-| `ragpdf index <doc>... --spec <nome>` | Indicizza ed esporta il CSV (`--pages`, `--force`, `--all`, `-y`) |
-| `ragpdf export [--all] --spec <nome>` | Rigenera i CSV senza chiamare Gemini; con più documenti anche `TUTTI.csv` |
+| `ragpdf index <doc>... [--spec <nome>]` | Indicizza ed esporta il CSV (`--pages`, `--force`, `--all`, `-y`); di default la specifica del documento |
+| `ragpdf export [--all] [--spec <nome>]` | Rigenera i CSV senza chiamare Gemini; con più documenti anche `TUTTI.csv` |
 | `ragpdf compare <doc> --reference <csv>` | Confronta il CSV prodotto con uno di riferimento: copertura, precisione, differenze |
 | `ragpdf rag describe/build/ask` | Modalità domande e risposte |
 

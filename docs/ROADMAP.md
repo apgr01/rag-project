@@ -44,7 +44,16 @@ Decisi insieme e da rispettare in tutti gli step:
   d'esempio + pagine campione.
 - [x] **Esperienza d'uso**: CLI guidata (`doctor`, `add`, `list`, domande quando manca
   qualcosa, stima dei tempi, ripresa), guida passo passo.
-- [x] **Test**: 50 test senza rete con Gemini simulato.
+- [x] **Configurazione guidata** (`ragpdf setup`): l'utente sceglie le pagine significative,
+  Gemini propone primer e specifica, anteprima con le stesse regole dell'indicizzazione,
+  correzioni a parole in un ciclo con versioni, ripresa e salvataggio; partenza da file
+  esistenti per cataloghi dello stesso tipo.
+- [x] **Input per pagina configurabile** (`image+text` di default, `image`, `pdf`); testo
+  nativo ripulito dal finto grassetto.
+- [x] **Robustezza**: risposte troncate/bloccate riconosciute senza tentativi inutili; righe
+  più corte (colonne di contesto non ripetute); riuso delle pagine dell'anteprima; specifica
+  predefinita per documento.
+- [x] **Test**: 96 test senza rete con Gemini simulato.
 - [ ] **Step 3 — Qualità del retrieval (RAG)**: embedding multilingue locali configurabili,
   soglia di rilevanza.
 
@@ -52,13 +61,22 @@ Decisi insieme e da rispettare in tutti gli step:
 
 Indicizzazione, in ordine di utilità prevista:
 
-1. **Collaudo su cataloghi reali** e messa a punto di prompt e specifiche d'esempio.
+1. **Collaudo su cataloghi reali** e messa a punto dei prompt (`configs/prompts/`):
+   setup, revisione, estrazione. Confrontare le modalità di input con `compare`.
 2. ~~Confronto con un CSV di riferimento~~ → fatto: `ragpdf compare`.
-3. **Rilettura di verifica** opzionale: seconda chiamata sulle pagine con anomalie o con
+3. **Rifare solo alcune pagine** dopo una correzione (es. solo quelle con anomalie),
+   accettando consapevolmente regole miste; oggi una correzione propone di rifare tutto.
+4. **Più pagine per richiesta** (`pages_per_request`), solo se le quote giornaliere
+   diventassero il collo di bottiglia: dimezza le richieste ma aumenta il rischio di righe
+   perse; da misurare.
+5. **Rilettura di verifica** opzionale: seconda chiamata sulle pagine con anomalie o con
    poche righe rispetto alle attese.
-4. **Classificazione rapida delle pagine** per saltare automaticamente copertine, indici e
+6. **Classificazione rapida delle pagine** per saltare automaticamente copertine, indici e
    legende senza indicarle in `pages`.
-5. **Stima dei costi e del tempo** più precisa, in base ai token effettivi.
+7. **Stima dei costi e del tempo** più precisa, in base ai token effettivi (l'SDK li
+   restituisce in `usage_metadata`).
+8. **Cache del contesto** di Gemini per primer ed esempi, ripetuti identici in ogni pagina:
+   ridurrebbe i costi sui cataloghi lunghi.
 
 Altro:
 
@@ -68,6 +86,12 @@ Altro:
 - Eventuale interfaccia grafica, riutilizzando `app.py`.
 
 ## Note dal collaudo
+
+- **Quote per progetto.** I limiti di Gemini valgono per progetto Google Cloud, non per
+  chiave: più chiavi dello stesso progetto non aumentano la capacità. Documentato nella
+  guida.
+- **Finto grassetto.** PyMuPDF lo estrae come parola ripetuta (`LOMBARDINILOMBARDINI`), non
+  come lettere triplicate come pdfplumber: gestito eliminando i frammenti sovrapposti.
 
 - Nel vecchio indice Finimpianti la colonna `Pagina_PDF_Reale` delle righe della **seconda**
   pagina di un motore riporta il numero della **prima** pagina del motore. Il nuovo

@@ -25,8 +25,10 @@ Come è organizzato il codice e **perché**. Utile per orientarsi prima di modif
 src/ragpdf/
 ├── cli.py              interfaccia a riga di comando (solo input/output)
 ├── ui.py               domande, messaggi, tabelle nel terminale
+├── cli_setup.py        dialogo della configurazione guidata (ragpdf setup)
 ├── app.py              strato applicativo: collega i pezzi, usato dalla CLI
-├── primer.py           bozza del primer da PDF intero
+├── setup_session.py    logica della configurazione guidata (giri, anteprima, salvataggio)
+├── primer.py           bozza del primer da PDF intero o da un estratto
 │
 ├── core/               infrastruttura comune alle due modalità
 │   ├── paths.py        percorsi dell'applicazione
@@ -34,6 +36,7 @@ src/ragpdf/
 │   ├── workspace.py    struttura della cartella dati
 │   ├── documents.py    registro dei documenti (id, SHA-256, primer)
 │   ├── render.py       PDF -> PNG con cache
+│   ├── pdf_tools.py    estratti PDF, testo nativo ripulito
 │   ├── manifest.py     stato per pagina, per riprendere il lavoro
 │   ├── page_runner.py  esecuzione parallela con arresto ordinato
 │   ├── gemini.py       client Gemini: pool di chiavi, ritmo, errori
@@ -47,6 +50,7 @@ src/ragpdf/
 │   ├── prompt.py       prompt e JSON Schema per ogni pagina
 │   ├── extractor.py    Gemini pagina per pagina -> JSON salvati
 │   ├── assemble.py     JSON -> righe del CSV, controlli, anomalie
+│   ├── compare.py      confronto con un CSV di riferimento
 │   └── export.py       scrittura di CSV e report anomalie
 │
 └── rag/                modalità RAG (domande e risposte)
@@ -100,6 +104,68 @@ pagine vecchie e nuove produrrebbe un CSV incoerente: il programma lo rileva e c
 rifare. Le modifiche che non toccano le risposte (sezione `output`, `required`) non
 cambiano l'impronta: basta `ragpdf export`.
 
+## La configurazione guidata (`ragpdf setup`)
+
+```
+utente: pagine significative (1,4,10-14,...), obiettivo, CSV di riferimento
+   │
+   ▼
+pdf_tools.build_subset_pdf ─► estratto PDF con solo quelle pagine
+   │                           (pagine NON modificate: la corrispondenza con le
+   │                            pagine originali è scritta nel prompt)
+   ▼
+Gemini (setup_initial.md) ─► JSON: primer, specifica YAML, riepilogo, domande, pagine di prova
+   │
+   ▼  giro N salvato in documents/<id>/setup/rounds/NN/
+Extractor.preview ─► anteprima sulle pagine di prova, STESSE regole dell'indicizzazione vera
+   │                 + confronto con il riferimento (stesso file, stesse pagine)
+   ▼
+utente: correzione a parole ──► Gemini (setup_revise.md) riceve estratto, primer e specifica
+   ▲                            attuali, risultati della prova, correzioni precedenti
+   └──────────── nuovo giro ◄───┘
+   │
+  /ok ─► primer e specifica nel workspace, predefiniti per il documento;
+         pagine dell'anteprima riusate nell'indicizzazione se l'impronta coincide
+```
+
+Scelte:
+
+- **Estratto scelto dall'utente invece del PDF intero.** Il PDF intero può superare i limiti
+  della Files API (50 MB) ed è in gran parte ripetitivo: poche pagine scelte bene (indice,
+  legende, schede tipo) danno un primer più mirato, più veloce ed economico. Un estratto PDF
+  (non immagini) mantiene il testo nativo, utile per sigle e codici.
+- **Una sola risposta strutturata per primer e specifica.** Primer e specifica restano due
+  file distinti (il primer descrive un *tipo* di documento ed è riusabile per indicizzazioni
+  diverse), ma l'utente dialoga con un solo assistente.
+- **I risultati della prova tornano a Gemini.** Nella revisione Gemini vede le righe
+  estratte, le anomalie e le differenze con il riferimento: può correggere errori che
+  l'utente non ha ancora notato.
+- **Le correzioni precedenti sono sempre nel prompt**, per evitare che una revisione annulli
+  le precedenti.
+- **Ogni giro è un file su disco**: `/indietro`, ripresa dopo interruzioni, modifiche
+  manuali registrate come nuovi giri.
+- **Specifica non valida**: si chiede una correzione mostrando gli errori, una volta; se
+  fallisce ancora, la versione precedente resta quella valida.
+
+## Cosa riceve Gemini per ogni pagina
+
+`indexing.input` in configurazione:
+
+| Modalità | Allegati | Note |
+|---|---|---|
+| `image+text` (default) | PNG della pagina + testo nativo estratto nel prompt | immagine per struttura e associazioni, testo per caratteri esatti |
+| `image` | PNG della pagina | per PDF con testo estratto inaffidabile |
+| `pdf` | PDF di una pagina | Gemini usa testo e grafica da sé; risoluzione non controllabile |
+
+Il testo nativo viene ripulito (`pdf_tools.page_text`): i frammenti duplicati e sovrapposti
+del *finto grassetto* vengono eliminati prima di ricomporre le righe; tra frammenti lontani
+sulla stessa riga si inserisce ` | ` per separare le colonne.
+
+Una pagina per richiesta: con più pagine insieme crescono il rischio di righe perse e quello
+di superare la lunghezza massima della risposta, e un errore costa più pagine. Le colonne di
+contesto non vengono ripetute nelle righe (Gemini le dà una volta in `page_context`) per
+tenere corte le risposte.
+
 ## Il client Gemini
 
 `core/gemini.py` gestisce N chiavi API come un pool:
@@ -109,7 +175,12 @@ cambiano l'impronta: basta `ragpdf export`.
 - `429` al minuto → pausa della chiave; `429` giornaliero → chiave esclusa; quando tutte
   sono escluse → `QuotaExhaustedError`, che ferma l'elaborazione in modo ordinato;
 - `5xx` e rete → nuovo tentativo con attesa crescente (backoff esponenziale);
+- risposte interrotte (lunghezza massima) o bloccate dai filtri → errore immediato della
+  pagina con spiegazione, senza tentativi inutili;
 - altri errori → subito, con messaggio chiaro.
+
+PDF fino a 15 MB vengono inviati direttamente nella richiesta; oltre, tramite la Files API
+(caricati con la chiave del tentativo, attesi fino allo stato ACTIVE, poi eliminati).
 
 `orologio` e `sleep` sono iniettabili: i test verificano rotazione e attese senza aspettare
 davvero. `FakeGeminiClient` ha la stessa interfaccia (`LLMClient`) e permette di provare
@@ -124,3 +195,6 @@ l'intero programma senza rete (`RAGPDF_FAKE_GEMINI=1`).
 | Contesto ricostruito dopo | Passare la pagina precedente a Gemini | Raddoppierebbe i costi e impedirebbe il parallelismo |
 | CLI con argparse | Typer/Rich | Nessuna dipendenza in più; output semplice leggibile su ogni console Windows |
 | ChromaDB opzionale | Dipendenza obbligatoria | L'indicizzazione non lo usa e su alcune versioni di Python/Windows è difficile da installare |
+| Estratto PDF con pagine scelte (setup/primer) | PDF intero sempre | Limiti di dimensione, costi e contenuto ripetitivo; l'utente sa quali pagine spiegano il catalogo |
+| Corrispondenza delle pagine nel prompt | Numero originale stampato sulle pagine | Le pagine restano identiche all'originale; nessun elemento estraneo da interpretare |
+| Immagine + testo nativo per pagina | Solo immagine / solo PDF | Struttura dall'immagine, caratteri esatti dal testo; configurabile e misurabile con `compare` |
