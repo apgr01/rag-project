@@ -232,9 +232,12 @@ def _start_new(app: App, doc: Document, args: argparse.Namespace) -> SetupSessio
                     break
                 ui.warn(f"File non trovato: {reference}")
 
+    # Partendo da file esistenti si aggiornano quelli (un solo primer per tipo di catalogo),
+    # salvo un nome diverso indicato con --name.
     session = SetupSession.new(
         app, doc, context, goal="", reference_csv=Path(reference) if reference else None,
-        primer_name=args.name, spec_name=args.name,
+        primer_name=args.name or (start_from[0] if start_from else None),
+        spec_name=args.name or (start_from[1] if start_from else None),
     )
     if goal.strip() == "/note":
         goal = _ask_feedback_in_editor(session)
@@ -266,8 +269,7 @@ def _resume(app: App, doc: Document, args: argparse.Namespace) -> SetupSession |
 
 # --------------------------------------------------------------------------- comandi
 def _save(app: App, session: SetupSession) -> bool:
-    primer_target, spec_target = session.targets()
-    existing = [p for p in (primer_target, spec_target) if p.exists()]
+    existing = session.files_that_would_change()
     while existing and not session.state.saved_at:
         names = ", ".join(p.name for p in existing)
         if ui.ask_yes_no(f"Esistono già {names} nel workspace. Sovrascriverli?", default=False):
@@ -277,8 +279,7 @@ def _save(app: App, session: SetupSession) -> bool:
 
         session.state.primer_name = session.state.spec_name = slugify(new_name)
         session.save_state()
-        primer_target, spec_target = session.targets()
-        existing = [p for p in (primer_target, spec_target) if p.exists()]
+        existing = session.files_that_would_change()
     primer_path, spec_path = session.save()
     ui.ok(f"Primer salvato: {primer_path}")
     ui.ok(f"Specifica salvata: {spec_path} (predefinita per '{session.doc.id}')")

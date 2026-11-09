@@ -148,7 +148,9 @@ Ogni versione resta salvata: puoi interrompere (anche con Ctrl+C) e riprendere c
 
 Per un secondo catalogo dello stesso editore/layout non serve ripartire da zero: alla domanda
 *"Da dove vuoi partire?"* scegli *primer e specifica esistenti*. Si va subito all'anteprima
-sul nuovo catalogo e si corregge solo se serve.
+sul nuovo catalogo e si corregge solo se serve. Al salvataggio si aggiornano gli **stessi**
+file (un solo primer per tipo di catalogo): se li hai modificati ti viene chiesto se
+sovrascriverli o salvarli con un nome nuovo.
 
 ```powershell
 ragpdf setup "C:\cataloghi\Catalogo 2 LOMBARDINI.pdf" --primer catalogo-1-lombardini-rel-1501 --spec catalogo-1-lombardini-rel-1501

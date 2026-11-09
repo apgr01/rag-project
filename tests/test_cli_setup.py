@@ -99,9 +99,29 @@ def test_start_from_existing_files(terminal, pdf_factory, capsys):
     assert run(["", "", "", "/ok", "n"], str(pdf_factory("Primo.pdf", pages=4))) == 0
     second = pdf_factory("Secondo.pdf", pages=4, prefix="S")
     # menu "Da dove vuoi partire?" -> 2 (esistenti), primer 1, specifica 1
+    # nessuna modifica: si salva sugli stessi file senza chiedere di sovrascrivere
     assert run(["2", "1", "1", "/ok", "n"], str(second)) == 0
     assert len(fake.setup_prompts) == 1   # nessuna nuova analisi
-    assert (tmp_path / "data" / "specs" / "secondo.yaml").exists()
+    specs = tmp_path / "data" / "specs"
+    assert sorted(p.name for p in specs.glob("*.yaml")) == ["primo.yaml"]
+    from ragpdf.app import App
+    from ragpdf.core.config import load_config
+
+    docs = {d.id: d.info for d in App(load_config(tmp_path / "cfg.yaml")).documents.list()}
+    assert docs["secondo"].primer == "primo" and docs["secondo"].spec == "primo"
+
+
+def test_start_from_existing_with_changes_asks_before_overwriting(terminal, pdf_factory):
+    run, fake, tmp_path = terminal
+    fake.setup_answers = [answer(pages=(2,))]
+    run(["", "", "", "/ok", "n"], str(pdf_factory("Primo.pdf", pages=4)))
+    fake.setup_answers = [answer(spec=SPEC_V2, pages=(2,))]
+    second = pdf_factory("Secondo.pdf", pages=4, prefix="S")
+    # correzione -> la specifica cambia -> /ok chiede: no -> nome "variante"
+    assert run(["2", "1", "1", "aggiungi descrizione", "/ok", "n", "variante", "n"], str(second)) == 0
+    specs = tmp_path / "data" / "specs"
+    assert "codice in maiuscolo" not in (specs / "primo.yaml").read_text(encoding="utf-8")
+    assert "codice in maiuscolo" in (specs / "variante.yaml").read_text(encoding="utf-8")
 
 
 def test_not_interactive(monkeypatch, tmp_path, capsys):

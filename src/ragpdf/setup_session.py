@@ -553,6 +553,23 @@ class SetupSession:
         ws = self.app.workspace
         return ws.primer_path(self.state.primer_name), ws.spec_path(self.state.spec_name)
 
+    def files_that_would_change(self) -> list[Path]:
+        """File già presenti nel workspace che il salvataggio modificherebbe davvero."""
+        primer_target, spec_target = self.targets()
+        changed = []
+        if primer_target.exists() and primer_target.read_text(encoding="utf-8") != self.primer_text():
+            changed.append(primer_target)
+        if spec_target.exists():
+            try:
+                same = load_spec(spec_target).model_dump(exclude={"examples"}) == self.load_spec().model_dump(
+                    exclude={"examples"}
+                )
+            except SpecError:
+                same = False
+            if not same:
+                changed.append(spec_target)
+        return changed
+
     def save(self) -> tuple[Path, Path]:
         """Copia primer e specifica correnti nel workspace e associa il primer al documento."""
         primer_target, spec_target = self.targets()
