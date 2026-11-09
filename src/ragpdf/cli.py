@@ -196,12 +196,17 @@ def cmd_doctor(app: App, args: argparse.Namespace) -> int:
         parallel = app.config.indexing.max_workers or len(keys)
         ui.ok(f"Chiavi API Gemini trovate: {len(keys)} (richieste parallele: {parallel})")
     elif not app.simulated:
-        ui.error(f"Nessuna chiave API Gemini. Crea il file {ENV_FILE.name} partendo da .env.example.")
+        if ENV_FILE.exists():
+            ui.error(f"Il file {ENV_FILE} esiste ma non contiene chiavi API Gemini.")
+            ui.hint("Aprilo e completa la riga  GEMINI_API_KEY_01=la-tua-chiave")
+        else:
+            ui.error(f"Nessuna chiave API Gemini: manca il file {ENV_FILE}.")
+            ui.hint("Crealo copiando .env.example (Windows: copy .env.example .env) e inserisci la chiave.")
         ui.hint("Le chiavi si ottengono gratuitamente su https://aistudio.google.com/apikey")
         problems += 1
 
     ui.info(f"Modello: {app.config.gemini.model}   DPI rendering: {app.config.render.dpi}   "
-            f"richieste/minuto per chiave: {app.config.gemini.requests_per_minute_per_key}")
+            f"richieste/minuto per chiave: {app.config.gemini.requests_per_minute_per_key:g}")
 
     docs = app.documents.list()
     ui.info(f"Documenti: {len(docs)}   Primer: {len(app.workspace.list_primers())}   "
@@ -220,7 +225,7 @@ def cmd_doctor(app: App, args: argparse.Namespace) -> int:
             problems += 1
 
     if problems:
-        ui.error(f"Trovati {problems} problemi da risolvere.")
+        ui.error("Trovato 1 problema da risolvere." if problems == 1 else f"Trovati {problems} problemi da risolvere.")
         return 1
     ui.ok("Tutto pronto.")
     if not args.online:
