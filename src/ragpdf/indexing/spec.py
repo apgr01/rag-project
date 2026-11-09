@@ -188,12 +188,13 @@ class IndexingSpec(_Strict):
         return "\n".join(lines)
 
     # --- impronta ------------------------------------------------------------------
-    def extraction_fingerprint(self, primer_text: str, model: str) -> str:
+    def extraction_fingerprint(self, primer_text: str, model: str, input_mode: str = "image") -> str:
         """Impronta di tutto ciò che influenza le risposte di Gemini.
 
         Se cambia (nuove colonne, istruzioni diverse, primer modificato, altro
         modello) i risultati già estratti non sono più coerenti con la specifica
-        e il programma propone di rifare l'estrazione. Le modifiche alla sola
+        e il programma propone di rifare l'estrazione. Conta anche la modalità di input
+        (immagine, immagine+testo, PDF). Le modifiche alla sola
         sezione ``output`` o ai controlli (``required``) invece non la
         richiedono: basta rigenerare il CSV.
         """
@@ -205,6 +206,7 @@ class IndexingSpec(_Strict):
             "examples": self.example_text(),
             "primer": primer_text,
             "model": model,
+            "input": input_mode,
         }
         blob = json.dumps(relevant, sort_keys=True, ensure_ascii=False)
         return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]

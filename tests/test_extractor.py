@@ -134,3 +134,36 @@ def test_export_flags_stale_results(app, pdf_factory):
     assert not app.export(doc, SPEC).stale
     changed = SPEC.model_copy(update={"instructions": "nuova regola"})
     assert app.export(doc, changed).stale
+
+
+@pytest.mark.parametrize("mode", ["image+text", "image", "pdf"])
+def test_input_modes(config, pdf_factory, mode):
+    config.indexing.input = mode
+    client = FakeGeminiClient(catalog_responder)
+    app = App(config, client=client)
+    doc = app.documents.add(pdf_factory(pages=2, prefix="CODICE FIN777"))
+    app.extractor().run(doc, SPEC, "p", pages="2", show_progress=False)
+    (req,) = client.requests
+    has_text = "TESTO ESTRATTO DAL PDF" in req.prompt and "CODICE FIN777 2" in req.prompt
+    assert has_text == (mode == "image+text")
+    assert bool(req.images) == (mode != "pdf")
+    assert (req.pdf_pages == 1) == (mode == "pdf")
+
+
+def test_changing_input_mode_changes_fingerprint(config, pdf_factory):
+    app = App(config, client=FakeGeminiClient(catalog_responder))
+    doc = app.documents.add(pdf_factory(pages=1))
+    app.extractor().run(doc, SPEC, "p", show_progress=False)
+    config.indexing.input = "pdf"
+    with pytest.raises(SpecChangedError):
+        app.extractor().run(doc, SPEC, "p", show_progress=False)
+
+
+def test_preview_does_not_touch_real_results(app, pdf_factory, tmp_path):
+    doc = app.documents.add(pdf_factory(pages=4))
+    out = tmp_path / "anteprima"
+    report, results = app.extractor().preview(doc, SPEC, "p", [3, 2], out, show_progress=False)
+    assert report.succeeded == 2 and sorted(results) == [2, 3]
+    assert not doc.extraction_dir(SPEC.name).exists()
+    report, results = app.extractor().preview(doc, SPEC, "p", [4], out, show_progress=False)
+    assert sorted(results) == [4]   # ogni anteprima riparte da zero

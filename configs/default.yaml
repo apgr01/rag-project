@@ -10,6 +10,7 @@ gemini:
   model: gemini-3.6-flash          # lettura delle pagine ed estrazione strutturata
   text_model: gemini-3.6-flash     # risposte testuali e generazione del primer
   temperature: 0.1                 # bassa = risposte più fedeli e ripetibili
+  media_resolution:                # low | medium | high (vuoto = default del modello)
   requests_per_minute_per_key: 10  # ritmo massimo per ciascuna chiave API
   max_retries: 6                   # tentativi per richiesta (errori temporanei, quote)
   quota_cooldown_seconds: 60       # pausa di una chiave dopo un errore di quota
@@ -18,6 +19,7 @@ render:
   dpi: 200                         # più alto = testo piccolo più leggibile, file più grandi
 
 indexing:
+  input: image+text                # image+text | image | pdf (cosa riceve Gemini per ogni pagina)
   max_workers:                     # vuoto = una richiesta parallela per chiave API
   max_page_attempts: 3             # una pagina fallita viene ritentata fino a N volte
 

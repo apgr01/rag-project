@@ -33,6 +33,7 @@ from ragpdf.core.fileio import read_json, utc_now, write_json
 from ragpdf.core.gemini import LLMClient
 from ragpdf.core.manifest import DONE, Manifest
 from ragpdf.core.page_runner import RunReport, run_pages
+from ragpdf.core.pdf_tools import build_subset_pdf, page_text
 from ragpdf.core.render import parse_page_ranges, render_pages
 from ragpdf.indexing.prompt import PromptBuilder
 from ragpdf.indexing.spec import IndexingSpec
@@ -99,9 +100,29 @@ def selected_pages(doc: Document, spec: IndexingSpec, pages: str | None = None) 
 
 
 class Extractor:
+    """Estrae le righe dalle pagine di un documento secondo una specifica.
+
+    Modalità di input (``indexing.input`` in configurazione):
+
+    - ``image+text`` (default): immagine della pagina + testo nativo estratto dal PDF.
+      L'immagine dà la struttura (tabelle, icone, associazioni), il testo i caratteri
+      esatti di codici e numeri. Se la pagina non ha testo (scansione) si usa solo
+      l'immagine.
+    - ``image``: solo l'immagine.
+    - ``pdf``: la pagina come PDF di una pagina; Gemini usa da sé testo e grafica,
+      ma non si controlla la risoluzione.
+    """
+
     def __init__(self, client: LLMClient, config: Config):
         self.client = client
         self.config = config
+
+    @property
+    def input_mode(self) -> str:
+        return self.config.indexing.input
+
+    def fingerprint(self, spec: IndexingSpec, primer_text: str) -> str:
+        return spec.extraction_fingerprint(primer_text, self.config.gemini.model, self.input_mode)
 
     @staticmethod
     def result_path(out_dir: Path, page: int) -> Path:
@@ -111,8 +132,13 @@ class Extractor:
         self, doc: Document, spec: IndexingSpec, primer_text: str, force: bool = False
     ) -> Manifest:
         out_dir = doc.extraction_dir(spec.name)
-        fingerprint = spec.extraction_fingerprint(primer_text, self.config.gemini.model)
-        meta = {"spec": spec.name, "fingerprint": fingerprint, "model": self.config.gemini.model}
+        fingerprint = self.fingerprint(spec, primer_text)
+        meta = {
+            "spec": spec.name,
+            "fingerprint": fingerprint,
+            "model": self.config.gemini.model,
+            "input": self.input_mode,
+        }
         manifest = Manifest.load_or_create(out_dir / "manifest.json", doc.info.page_count, meta)
 
         if force:
@@ -140,21 +166,82 @@ class Extractor:
         todo = manifest.pages_to_process(self.config.indexing.max_page_attempts, only=selected)
         if not todo:
             return RunReport()
+        return self._extract(doc, spec, primer_text, todo, doc.extraction_dir(spec.name), manifest,
+                             "Indicizzazione", show_progress)
 
-        out_dir = doc.extraction_dir(spec.name)
-        images = render_pages(doc.pdf_path, doc.pages_dir, self.config.render.dpi, todo, show_progress=show_progress)
+    def preview(
+        self,
+        doc: Document,
+        spec: IndexingSpec,
+        primer_text: str,
+        pages: list[int],
+        out_dir: Path,
+        show_progress: bool = True,
+    ) -> tuple[RunReport, dict[int, dict[str, Any]]]:
+        """Estrazione di prova su poche pagine, in una cartella separata.
+
+        Non tocca i risultati dell'indicizzazione vera: ogni anteprima riparte da zero.
+        """
+        if out_dir.exists():
+            for old in out_dir.glob("*.json"):
+                old.unlink()
+        manifest = Manifest.load_or_create(out_dir / "manifest.json", doc.info.page_count)
+        report = self._extract(doc, spec, primer_text, sorted(set(pages)), out_dir, manifest,
+                               "Anteprima", show_progress)
+        results = {int(p.stem.split("-")[1]): read_json(p) for p in sorted(out_dir.glob("page-*.json"))}
+        return report, results
+
+    def _page_inputs(self, doc: Document, pages: list[int], show_progress: bool) -> dict[int, dict[str, Any]]:
+        """Prepara per ogni pagina gli allegati e il testo, secondo la modalità di input."""
+        inputs: dict[int, dict[str, Any]] = {n: {"images": [], "pdf": None, "text": ""} for n in pages}
+        if self.input_mode in ("image", "image+text"):
+            images = render_pages(doc.pdf_path, doc.pages_dir, self.config.render.dpi, pages,
+                                  show_progress=show_progress)
+            for n in pages:
+                inputs[n]["images"] = [images[n]]
+        if self.input_mode == "image+text":
+            for n in pages:
+                inputs[n]["text"] = page_text(doc.pdf_path, n)
+        if self.input_mode == "pdf":
+            for n in pages:
+                single = doc.pages_dir / f"page-{n:04d}.pdf"
+                if not single.exists():
+                    build_subset_pdf(doc.pdf_path, [n], single)
+                inputs[n]["pdf"] = single
+        return inputs
+
+    def _extract(
+        self,
+        doc: Document,
+        spec: IndexingSpec,
+        primer_text: str,
+        pages: list[int],
+        out_dir: Path,
+        manifest: Manifest,
+        label: str,
+        show_progress: bool,
+    ) -> RunReport:
+        inputs = self._page_inputs(doc, pages, show_progress)
         builder = PromptBuilder(spec, primer_text, doc.info.page_count)
 
         def worker(n: int) -> None:
-            response = self.client.generate_json(builder.page_prompt(n), builder.schema, images=[images[n]])
+            item = inputs[n]
+            prompt = builder.page_prompt(n, page_text=item["text"])
+            response = self.client.generate_json(prompt, builder.schema, images=item["images"], pdf=item["pdf"])
             result = normalize_response(spec, response)
             write_json(
                 self.result_path(out_dir, n),
-                {"page": n, **result, "model": self.config.gemini.model, "generated_at": utc_now()},
+                {
+                    "page": n,
+                    **result,
+                    "model": self.config.gemini.model,
+                    "input": self.input_mode,
+                    "generated_at": utc_now(),
+                },
             )
 
         parallelism = self.config.indexing.max_workers or self.client.parallelism
-        return run_pages(todo, worker, manifest, parallelism, "Indicizzazione", show_progress)
+        return run_pages(pages, worker, manifest, parallelism, label, show_progress)
 
 
 def load_page_results(doc: Document, spec_name: str) -> dict[int, dict[str, Any]]:

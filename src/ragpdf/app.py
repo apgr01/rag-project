@@ -113,7 +113,7 @@ class App:
             primer = self.primer_text(doc) if doc.info.primer else ""
         except FileNotFoundError:
             return False
-        current = spec.extraction_fingerprint(primer, self.config.gemini.model)
+        current = spec.extraction_fingerprint(primer, self.config.gemini.model, self.config.indexing.input)
         return manifest.meta.get("fingerprint") not in (None, current)
 
     def export_merged(self, spec: IndexingSpec, docs: list[Document]) -> ExportResult:

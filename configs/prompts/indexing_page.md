@@ -8,7 +8,7 @@ Ogni riga rappresenta: {{row}}
 
 Colonne (ogni riga è un oggetto JSON con queste chiavi):
 {{columns}}
-{{mappings}}{{instructions}}{{examples}}
+{{mappings}}{{instructions}}{{examples}}{{page_text}}
 ## REGOLE GENERALI
 - Questa è la pagina {{page_number}} di {{total_pages}} del PDF. Estrai SOLO ciò che si ricava da questa pagina, aiutandoti con il primer per interpretarla; non inventare valori.
 - Trascrivi codici e numeri esattamente come appaiono (stessi caratteri, spazi e punteggiatura).

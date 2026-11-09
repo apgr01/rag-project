@@ -124,5 +124,14 @@ class PromptBuilder:
         )
         self._template = load_prompt("indexing_page")
 
-    def page_prompt(self, page_number: int) -> str:
-        return render_prompt(self._template, page_number=page_number, **self._fixed)
+    def page_prompt(self, page_number: int, page_text: str = "") -> str:
+        text_block = (
+            "\n## TESTO ESTRATTO DAL PDF PER QUESTA PAGINA\n"
+            "Testo nativo della pagina, estratto automaticamente. Perde la disposizione di tabelle e "
+            "colonne e può contenere piccoli errori: usa l'IMMAGINE per capire struttura e associazioni, "
+            "e questo testo per trascrivere con esattezza codici, numeri e sigle quando ci sono.\n"
+            "```text\n" + page_text.strip() + "\n```\n"
+            if page_text.strip()
+            else ""
+        )
+        return render_prompt(self._template, page_number=page_number, page_text=text_block, **self._fixed)
