@@ -1,29 +1,36 @@
 /* Interfaccia di ragpdf: JavaScript semplice, senza librerie.
  *
+ * Tutto è organizzato per PROGETTO: uno o più PDF con la stessa struttura, che condividono
+ * primer e specifica e producono un CSV unico.
+ *
  * Schermate (indirizzo dopo il #):
- *   #/                         elenco dei cataloghi e caricamento di nuovi PDF
- *   #/doc/<id>/setup           1. configurazione guidata (primer + specifica con Gemini)
- *   #/doc/<id>/index           2. indicizzazione completa
- *   #/doc/<id>/results         3. risultati: CSV, anomalie, download
+ *   #/                       elenco dei progetti, creazione di un nuovo progetto
+ *   #/p/<id>/docs            PDF del progetto, note e pagine proprie di ciascun PDF
+ *   #/p/<id>/setup           1. configurazione guidata (primer + specifica con Gemini)
+ *   #/p/<id>/index           2. indicizzazione di tutti i PDF
+ *   #/p/<id>/results         3. CSV unico, anomalie, pagina di ricerca
  *
  * Regole di sicurezza per l'utente:
  *   - ogni azione che usa Gemini (pulsanti con la stellina) chiede conferma e dice quante
- *     richieste partiranno;
+ *     richieste partiranno; il tasto Invio non invia mai nulla;
  *   - i testi che scrivi (obiettivo, correzioni) restano bozze salvate nel browser finché
- *     non premi il pulsante di invio: il tasto Invio non invia mai nulla;
- *   - prima di inviare puoi vedere il prompt esatto.
+ *     non premi il pulsante di invio;
+ *   - prima di inviare puoi vedere il prompt esatto;
+ *   - modifiche manuali non salvate: conferma prima di cambiare pagina.
  */
 "use strict";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const view = $("#view");
-let pollTimer = null;          // aggiornamento periodico di un lavoro in corso
+let pollTimer = null;
+const MAX_CONTEXT_PAGES = 40;
 
 // ------------------------------------------------------------------ utilità
 function esc(value) {
   return String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
+const enc = encodeURIComponent;
 
 async function api(method, url, body, isForm = false) {
   const options = { method, headers: {} };
@@ -78,9 +85,9 @@ function showText(title, text, note = "") {
   $("#text-dialog").showModal();
 }
 
-function showPage(docId, page) {
-  $("#image-title").textContent = `Pagina ${page}`;
-  $("#image-body").src = `/api/documents/${encodeURIComponent(docId)}/page/${page}`;
+function showPage(docId, page, title = "") {
+  $("#image-title").textContent = `${title ? title + " — " : ""}pagina ${page}`;
+  $("#image-body").src = `/api/documents/${enc(docId)}/page/${page}`;
   $("#image-dialog").showModal();
 }
 
@@ -128,19 +135,24 @@ function formatPages(pages) {
   return parts.join(", ");
 }
 
-function table(columns, rows, { hide = [], pageColumn = null, docId = null } = {}) {
+/** Tabella; con pageColumn/fileColumn le righe aprono la pagina del PDF corrispondente. */
+function table(columns, rows, { hide = [], pageColumn = null, fileColumn = null, files = {}, docId = null } = {}) {
   const cols = columns.filter(c => !hide.includes(c));
   const head = cols.map(c => `<th>${esc(c)}</th>`).join("");
   const body = rows.map(r => {
     const page = pageColumn ? r[pageColumn] : null;
-    const attrs = page && docId ? ` class="clickable" data-page="${esc(page)}" title="Clic: mostra la pagina ${esc(page)}"` : "";
+    const doc = fileColumn ? files[r[fileColumn]] : docId;
+    const attrs = page && doc ? ` class="clickable" data-doc="${esc(doc)}" data-page="${esc(page)}" title="Clic: mostra la pagina"` : "";
     return `<tr${attrs}>${cols.map(c => `<td>${esc(r[c])}</td>`).join("")}</tr>`;
   }).join("");
   return `<div class="table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
-function bindPageClicks(root, docId) {
-  $$("[data-page]", root).forEach(el => el.addEventListener("click", () => showPage(docId, el.dataset.page)));
+function bindPageClicks(root, titles = {}) {
+  $$("[data-page][data-doc]", root).forEach(el => el.addEventListener("click", e => {
+    e.stopPropagation();
+    showPage(el.dataset.doc, el.dataset.page, titles[el.dataset.doc] || "");
+  }));
 }
 
 // ------------------------------------------------------------------ barra di stato
@@ -194,7 +206,6 @@ function watchJob(container, job, onDone) {
 }
 
 // ------------------------------------------------------------------ modifiche non salvate
-/** Riquadri con modifiche manuali non ancora salvate (primer, specifica). */
 function hasUnsavedEdits() {
   return $$("textarea[data-original]").some(t => t.value !== t.dataset.original);
 }
@@ -203,15 +214,15 @@ let lastHash = location.hash;
 
 // ------------------------------------------------------------------ router
 async function route() {
-  if (hasUnsavedEdits() && !window.confirm("Ci sono modifiche al primer o alla specifica non salvate. Uscire e perderle?")) {
-    history.replaceState(null, "", lastHash);   // si resta dove si era
+  if (hasUnsavedEdits() && !window.confirm("Ci sono modifiche non salvate (primer, specifica o note). Uscire e perderle?")) {
+    history.replaceState(null, "", lastHash);
     return;
   }
   lastHash = location.hash;
   stopPolling();
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   try {
-    if (parts[0] === "doc" && parts[1]) await renderDocument(parts[1], parts[2] || "setup");
+    if (parts[0] === "p" && parts[1]) await renderProject(parts[1], parts[2] || "docs");
     else await renderHome();
   } catch (e) {
     view.innerHTML = `<div class="panel note error">${esc(e.message)}</div><p><a href="#/">Torna all'elenco</a></p>`;
@@ -219,99 +230,200 @@ async function route() {
 }
 window.addEventListener("hashchange", route);
 
-// ------------------------------------------------------------------ HOME
-async function renderHome() {
-  const docs = await api("GET", "/api/documents");
-  view.innerHTML = `
-    <h1>Cataloghi</h1>
-    <p class="muted">Aggiungi un PDF, configura con Gemini cosa estrarre, poi indicizzalo per ottenere il CSV.</p>
-    <div class="panel">
-      <h3>Aggiungi un catalogo</h3>
-      <div class="drop" id="drop">Trascina qui un PDF, oppure <u>clicca per sceglierlo</u>
-        <input type="file" id="file" accept=".pdf,application/pdf" hidden></div>
-    </div>
-    <div class="panel">
-      <h3>Cataloghi nel workspace</h3>
-      ${docs.length ? `<div class="table-wrap"><table>
-        <thead><tr><th>Catalogo</th><th>Pagine</th><th>Configurazione</th><th>Indicizzazione</th><th></th></tr></thead>
-        <tbody>${docs.map(d => {
-          const idx = d.indexing.find(i => i.spec === d.spec) || d.indexing[0];
-          const conf = d.spec ? `<span class="badge ok">pronta</span> <span class="small muted">${esc(d.spec)}</span>`
-            : d.setup ? `<span class="badge warn">in corso (versione ${d.setup.round})</span>` : `<span class="badge">da fare</span>`;
-          const ind = idx ? `${idx.done}/${d.page_count} pagine${idx.failed ? ` <span class="badge error">${idx.failed} fallite</span>` : ""}` : "—";
-          return `<tr class="clickable" data-open="${esc(d.id)}">
-            <td><strong>${esc(d.title)}</strong><br><span class="small muted">${esc(d.source_filename)}</span>
-              ${d.job ? `<br><span class="badge warn">${esc(d.job.label)}…</span>` : ""}</td>
-            <td>${d.page_count}</td><td>${conf}</td><td>${ind}</td>
-            <td><button class="secondary small" data-delete="${esc(d.id)}">Elimina</button></td></tr>`;
-        }).join("")}</tbody></table></div>` : `<p class="muted">Nessun catalogo: aggiungine uno qui sopra.</p>`}
-    </div>`;
+/** Zona di caricamento: trascina o clicca; chiama onFiles(FileList). */
+function dropZone(el, input, onFiles) {
+  el.addEventListener("click", () => input.click());
+  el.addEventListener("dragover", e => { e.preventDefault(); el.classList.add("over"); });
+  el.addEventListener("dragleave", () => el.classList.remove("over"));
+  el.addEventListener("drop", e => { e.preventDefault(); el.classList.remove("over"); if (e.dataTransfer.files.length) onFiles(e.dataTransfer.files); });
+  input.addEventListener("change", () => input.files.length && onFiles(input.files));
+}
 
-  const drop = $("#drop"), input = $("#file");
-  drop.addEventListener("click", () => input.click());
-  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
-  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-  drop.addEventListener("drop", e => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); });
-  input.addEventListener("change", () => input.files[0] && upload(input.files[0]));
-
-  $$("[data-open]").forEach(tr => tr.addEventListener("click", e => {
-    if (e.target.closest("button")) return;
-    location.hash = `#/doc/${encodeURIComponent(tr.dataset.open)}/setup`;
-  }));
-  $$("[data-delete]").forEach(b => b.addEventListener("click", async () => {
-    const ok = await confirmDialog({ title: "Eliminare il catalogo?", danger: true, ok: "Elimina",
-      html: `<p>Verranno eliminati il PDF copiato nel workspace e <strong>tutti i risultati</strong> di <code>${esc(b.dataset.delete)}</code>. Primer e specifiche restano.</p>` });
-    if (ok) await busy(b, async () => { await api("DELETE", `/api/documents/${encodeURIComponent(b.dataset.delete)}`); route(); });
-  }));
-
-  async function upload(file) {
-    drop.textContent = `Caricamento di ${file.name}…`;
+/** Carica dei PDF in un progetto, uno alla volta, aggiornando un messaggio. */
+async function uploadPdfs(projectId, files, statusEl) {
+  const pdfs = [...files].filter(f => /\.pdf$/i.test(f.name));
+  if (!pdfs.length) { toast("Scegli dei file PDF."); return 0; }
+  let ok = 0;
+  for (const [i, file] of pdfs.entries()) {
+    statusEl.textContent = `Caricamento ${i + 1} di ${pdfs.length}: ${file.name}…`;
     const form = new FormData();
     form.append("file", file);
     try {
-      const doc = await api("POST", "/api/documents", form, true);
-      if (doc.scanned) toast("Il PDF non contiene testo selezionabile (scansione): Gemini leggerà solo le immagini.", 7000);
-      location.hash = `#/doc/${encodeURIComponent(doc.id)}/setup`;
-    } catch (e) {
-      if (e.status === 409 && e.data && e.data.existing) {
-        toast("Questo PDF è già presente: lo apro.");
-        location.hash = `#/doc/${encodeURIComponent(e.data.existing)}/setup`;
-      } else { showError(e); route(); }
-    }
+      const doc = await api("POST", `/api/projects/${enc(projectId)}/documents`, form, true);
+      if (doc.already_present) toast(`${file.name} era già nel workspace: aggiunto al progetto.`);
+      if (doc.scanned) toast(`${file.name} non contiene testo selezionabile (scansione): Gemini leggerà solo le immagini.`, 6000);
+      ok++;
+    } catch (e) { showError(e); }
   }
+  return ok;
 }
 
-// ------------------------------------------------------------------ DOCUMENTO
-async function renderDocument(docId, tab) {
-  const doc = await api("GET", `/api/documents/${encodeURIComponent(docId)}`);
-  const tabs = [["setup", "1 · Configurazione"], ["index", "2 · Indicizzazione"], ["results", "3 · Risultati"]];
+// ------------------------------------------------------------------ HOME
+async function renderHome() {
+  const projects = await api("GET", "/api/projects");
   view.innerHTML = `
-    <p class="small"><a href="#/">&larr; Cataloghi</a></p>
-    <h1>${esc(doc.title)}</h1>
-    <p class="muted small">${doc.page_count} pagine · primer: ${esc(doc.primer || "—")} · specifica: ${esc(doc.spec || "—")}</p>
+    <h1>Progetti di indicizzazione</h1>
+    <p class="muted">Un progetto raggruppa uno o più PDF con la stessa struttura: si configura una volta con Gemini
+      e produce un unico CSV per tutti.</p>
+    <div class="panel">
+      <h3>Nuovo progetto</h3>
+      <label for="new-name">Nome</label>
+      <input type="text" id="new-name" placeholder="es. Cataloghi Finimpianti motori">
+      <label>PDF del progetto <span class="muted small">(puoi aggiungerne altri anche dopo)</span></label>
+      <div class="drop" id="drop">Trascina qui uno o più PDF, oppure <u>clicca per sceglierli</u>
+        <input type="file" id="file" accept=".pdf,application/pdf" multiple hidden></div>
+      <p class="hint" id="chosen"></p>
+      <div class="row"><span class="spacer"></span><button id="create" type="button">Crea progetto</button></div>
+    </div>
+    <div class="panel">
+      <h3>Progetti</h3>
+      ${projects.length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Progetto</th><th>PDF</th><th>Pagine</th><th>Configurazione</th><th>Indicizzate</th><th></th></tr></thead>
+        <tbody>${projects.map(p => {
+          const conf = p.spec ? `<span class="badge ok">pronta</span>`
+            : p.setup ? `<span class="badge warn">in corso (v${p.setup.round})</span>` : `<span class="badge">da fare</span>`;
+          return `<tr class="clickable" data-open="${esc(p.id)}">
+            <td><strong>${esc(p.name)}</strong>${p.job ? `<br><span class="badge warn">${esc(p.job.label)}…</span>` : ""}</td>
+            <td>${p.documents.length}</td><td>${p.page_count}</td><td>${conf}</td>
+            <td>${p.spec ? `${p.done}/${p.page_count}` : "—"}</td>
+            <td><button class="secondary small" data-delete="${esc(p.id)}" type="button">Elimina</button></td></tr>`;
+        }).join("")}</tbody></table></div>` : `<p class="muted">Nessun progetto: creane uno qui sopra.</p>`}
+    </div>`;
+
+  let chosen = [];
+  dropZone($("#drop"), $("#file"), files => {
+    chosen = [...files].filter(f => /\.pdf$/i.test(f.name));
+    $("#chosen").textContent = chosen.length ? `${chosen.length} PDF: ${chosen.map(f => f.name).join(", ")}` : "";
+    if (!$("#new-name").value && chosen.length === 1) $("#new-name").value = chosen[0].name.replace(/\.pdf$/i, "");
+  });
+  $("#create").addEventListener("click", e => busy(e.target, async () => {
+    const name = $("#new-name").value.trim();
+    if (!name) throw new Error("Dai un nome al progetto.");
+    const project = await api("POST", "/api/projects", { name });
+    if (chosen.length) await uploadPdfs(project.id, chosen, $("#chosen"));
+    location.hash = `#/p/${enc(project.id)}/${chosen.length ? "setup" : "docs"}`;
+  }));
+  $$("[data-open]").forEach(tr => tr.addEventListener("click", e => {
+    if (e.target.closest("button")) return;
+    location.hash = `#/p/${enc(tr.dataset.open)}/docs`;
+  }));
+  $$("[data-delete]").forEach(b => b.addEventListener("click", async () => {
+    const p = projects.find(x => x.id === b.dataset.delete);
+    const ok = await confirmDialog({ title: "Eliminare il progetto?", danger: true, ok: "Elimina",
+      html: `<p>Verranno eliminati il progetto <strong>${esc(p.name)}</strong>, i suoi PDF copiati nel workspace
+             (${p.documents.length}) e <strong>tutti i loro risultati</strong>, salvo i PDF usati anche da altri progetti.
+             Primer, specifiche e CSV esportati restano.</p>` });
+    if (ok) await busy(b, async () => { await api("DELETE", `/api/projects/${enc(p.id)}`); route(); });
+  }));
+}
+
+// ------------------------------------------------------------------ PROGETTO
+async function renderProject(pid, tab) {
+  const project = await api("GET", `/api/projects/${enc(pid)}`);
+  const tabs = [["docs", "Documenti"], ["setup", "1 · Configurazione"], ["index", "2 · Indicizzazione"], ["results", "3 · Risultati"]];
+  view.innerHTML = `
+    <p class="small"><a href="#/">&larr; Progetti</a></p>
+    <h1>${esc(project.name)}</h1>
+    <p class="muted small">${project.documents.length} PDF · ${project.page_count} pagine ·
+      primer: ${esc(project.primer || "—")} · specifica: ${esc(project.spec || "—")}</p>
     <nav class="tabs">${tabs.map(([k, label]) =>
-      `<a href="#/doc/${encodeURIComponent(docId)}/${k}" class="${k === tab ? "active" : ""}">${label}</a>`).join("")}</nav>
+      `<a href="#/p/${enc(pid)}/${k}" class="${k === tab ? "active" : ""}">${label}</a>`).join("")}</nav>
     <div id="job"></div>
     <div id="tab"></div>`;
-  const ctx = { doc, docId, jobBox: $("#job"), box: $("#tab") };
-  const refresh = () => renderDocument(docId, tab);
-  ctx.refresh = refresh;
+  const ctx = {
+    project, pid, jobBox: $("#job"), box: $("#tab"),
+    titles: Object.fromEntries(project.documents.map(d => [d.id, d.title])),
+    files: Object.fromEntries(project.documents.map(d => [d.source_filename, d.id])),
+  };
+  ctx.refresh = () => renderProject(pid, tab);
 
-  // un lavoro già in corso (es. dopo aver ricaricato la pagina): lo si segue
-  const job = await api("GET", `/api/documents/${encodeURIComponent(docId)}/job`);
+  const job = await api("GET", `/api/projects/${enc(pid)}/job`);
   if (job && job.status === "in_corso") {
     ctx.box.innerHTML = `<p class="muted">Attendi la fine dell'operazione in corso…</p>`;
-    watchJob(ctx.jobBox, job, refresh);
+    watchJob(ctx.jobBox, job, ctx.refresh);
     return;
   }
-  if (tab === "index") await renderIndex(ctx);
+  if (!project.documents.length && tab !== "docs") {
+    ctx.box.innerHTML = `<div class="panel note">Il progetto non contiene PDF: <a href="#/p/${enc(pid)}/docs">aggiungili</a>.</div>`;
+    return;
+  }
+  if (tab === "setup") await renderSetup(ctx);
+  else if (tab === "index") await renderIndex(ctx);
   else if (tab === "results") await renderResults(ctx);
-  else await renderSetup(ctx);
+  else renderDocs(ctx);
+}
+
+// ------------------------------------------------------------------ DOCUMENTI
+function renderDocs(ctx) {
+  const { project, pid, box } = ctx;
+  box.innerHTML = `
+    <div class="panel">
+      <h3>Aggiungi PDF</h3>
+      <div class="drop" id="drop">Trascina qui uno o più PDF con la stessa struttura degli altri, oppure <u>clicca</u>
+        <input type="file" id="file" accept=".pdf,application/pdf" multiple hidden></div>
+      <p class="hint" id="upload-status">${project.spec ? "I nuovi PDF useranno primer e specifica del progetto: poi indicizzali dalla scheda 2." : ""}</p>
+    </div>
+    <div class="panel">
+      <h3>PDF del progetto</h3>
+      ${project.documents.length ? `<p class="hint">Le <strong>note</strong> e le <strong>pagine proprie</strong> valgono solo per quel PDF
+        (es. "in questo catalogo la versione è sotto il nome del motore", oppure pagine introduttive diverse).
+        Le colonne del CSV restano le stesse per tutti. Cambiarle richiede di reindicizzare solo quel PDF.</p>
+      ${project.documents.map(d => `
+        <div class="panel" style="margin-bottom:8px">
+          <div class="row">
+            <img src="/api/documents/${enc(d.id)}/thumb/1" alt="" style="width:46px;border:1px solid var(--border);border-radius:4px" data-doc="${esc(d.id)}" data-page="1">
+            <div><strong>${esc(d.title)}</strong><br><span class="small muted">${esc(d.source_filename)} · ${d.page_count} pagine
+              ${project.spec ? ` · indicizzate ${d.done}/${d.page_count}` : ""}${d.failed ? ` · <span class="badge error">${d.failed} fallite</span>` : ""}</span></div>
+            <span class="spacer"></span>
+            ${d.settings.notes ? '<span class="badge">note</span>' : ""}${d.settings.pages ? `<span class="badge">pagine ${esc(d.settings.pages)}</span>` : ""}
+            <button class="secondary" data-edit="${esc(d.id)}" type="button">Note e pagine</button>
+            <button class="secondary" data-remove="${esc(d.id)}" type="button">Togli</button>
+          </div>
+          <div id="edit-${esc(d.id)}" hidden>
+            <label>Note per questo PDF</label>
+            <textarea data-notes="${esc(d.id)}" rows="3" placeholder="Istruzioni in più valide solo per questo PDF"></textarea>
+            <label>Pagine da indicizzare <span class="muted small">(vuoto = quelle della specifica)</span></label>
+            <input type="text" data-pages="${esc(d.id)}" placeholder="es. 5-">
+            <div class="row" style="margin-top:.5rem"><span class="spacer"></span>
+              <button data-save="${esc(d.id)}" type="button">Salva</button></div>
+          </div>
+        </div>`).join("")}` : `<p class="muted">Nessun PDF: aggiungine qui sopra.</p>`}
+      ${project.documents.length ? `<div class="row"><span class="spacer"></span>
+        <a href="#/p/${enc(pid)}/setup"><button type="button">${project.spec ? "Rivedi la configurazione" : "Avanti: configurazione"}</button></a></div>` : ""}
+    </div>`;
+  bindPageClicks(box, ctx.titles);
+  dropZone($("#drop"), $("#file"), async files => {
+    const n = await uploadPdfs(pid, files, $("#upload-status"));
+    if (n) { toast(`${n} PDF aggiunti.`); ctx.refresh(); }
+  });
+  for (const d of project.documents) {
+    const area = $(`[data-notes="${CSS.escape(d.id)}"]`), pages = $(`[data-pages="${CSS.escape(d.id)}"]`);
+    area.value = d.settings.notes || "";
+    area.dataset.original = area.value;
+    pages.value = d.settings.pages || "";
+    $(`[data-edit="${CSS.escape(d.id)}"]`).addEventListener("click", () => {
+      const panel = $(`#edit-${CSS.escape(d.id)}`);
+      panel.hidden = !panel.hidden;
+    });
+    $(`[data-save="${CSS.escape(d.id)}"]`).addEventListener("click", e => busy(e.target, async () => {
+      if (pages.value.trim()) parsePages(pages.value, d.page_count);
+      await api("PUT", `/api/projects/${enc(pid)}/documents/${enc(d.id)}/settings`, { notes: area.value, pages: pages.value });
+      area.dataset.original = area.value;
+      toast("Salvato. Se il PDF era già indicizzato, andrà rifatto (scheda 2).");
+      ctx.refresh();
+    }));
+    $(`[data-remove="${CSS.escape(d.id)}"]`).addEventListener("click", async e => {
+      const ok = await confirmDialog({ title: "Togliere il PDF dal progetto?", danger: true, ok: "Togli",
+        html: `<p><strong>${esc(d.title)}</strong> verrà tolto dal progetto. Se non fa parte di altri progetti verrà
+               anche eliminato dal workspace, insieme ai suoi risultati.</p>` });
+      if (ok) await busy(e.target, async () => { await api("DELETE", `/api/projects/${enc(pid)}/documents/${enc(d.id)}`); ctx.refresh(); });
+    });
+  }
 }
 
 // ------------------------------------------------------------------ 1. CONFIGURAZIONE
 async function renderSetup(ctx, { forceForm = false } = {}) {
-  const data = await api("GET", `/api/documents/${encodeURIComponent(ctx.docId)}/setup`);
+  const data = await api("GET", `/api/projects/${enc(ctx.pid)}/setup`);
   const session = data.session;
   if (!session || forceForm) return renderSetupForm(ctx, data);
   if (!session.round) return renderSetupReview(ctx, session);
@@ -324,15 +436,29 @@ function steps(current) {
     `<span class="${i + 1 === current ? "current" : i + 1 < current ? "done" : ""}">${i + 1}. ${n}</span>`).join("")}</div>`;
 }
 
+/** Selezione di pagine su più PDF: Map(docId -> Set(pagine)). */
+function selectionFrom(pairs) {
+  const sel = new Map();
+  for (const [d, p] of pairs) { if (!sel.has(d)) sel.set(d, new Set()); sel.get(d).add(+p); }
+  return sel;
+}
+const selectionSize = sel => [...sel.values()].reduce((n, s) => n + s.size, 0);
+const selectionPairs = (sel, docs) => docs.flatMap(d => [...(sel.get(d.id) || [])].sort((a, b) => a - b).map(p => [d.id, p]));
+function selectionText(sel, docs) {
+  return docs.filter(d => sel.get(d.id) && sel.get(d.id).size)
+    .map(d => docs.length > 1 ? `${d.title}: ${formatPages([...sel.get(d.id)])}` : formatPages([...sel.get(d.id)])).join(" · ");
+}
+
 async function renderSetupForm(ctx, data) {
-  const { doc, docId, box } = ctx;
+  const { project, pid, box } = ctx;
+  const docs = project.documents;
   const library = await api("GET", "/api/library");
   const session = data.session;
   const canReuse = library.primers.length && library.specs.length;
-  const goalKey = `goal:${docId}`;
-  let selected = new Set(parsePages(session ? session.state.context_pages_text : data.suggested_pages, doc.page_count));
-  let reference = null;
-  let lastClicked = null;
+  const goalKey = `goal:${pid}`;
+  let selection = selectionFrom(session ? session.state.context_pages : data.suggested_pages);
+  let active = docs[0].id;
+  let reference = null, lastClicked = null;
 
   box.innerHTML = `
     ${steps(1)}
@@ -340,18 +466,20 @@ async function renderSetupForm(ctx, data) {
        Continuando la sostituirai. <a href="#" id="back-to-session">Torna a quella esistente</a></div>` : ""}
     ${canReuse ? `<div class="panel">
       <h3>Da dove partire</h3>
-      <label class="row" style="font-weight:normal"><input type="radio" name="mode" value="new" checked> Da zero: Gemini analizza questo catalogo</label>
-      <label class="row" style="font-weight:normal"><input type="radio" name="mode" value="existing"> Da primer e specifica esistenti (catalogo dello stesso tipo/editore)</label>
+      <label class="row" style="font-weight:normal"><input type="radio" name="mode" value="new" checked> Da zero: Gemini analizza i PDF del progetto</label>
+      <label class="row" style="font-weight:normal"><input type="radio" name="mode" value="existing"> Da primer e specifica esistenti (cataloghi dello stesso tipo/editore)</label>
       <div id="existing" hidden class="row">
         <div style="flex:1"><label>Primer</label><select id="from-primer">${library.primers.map(p => `<option>${esc(p)}</option>`).join("")}</select></div>
         <div style="flex:1"><label>Specifica</label><select id="from-spec">${library.specs.map(p => `<option>${esc(p)}</option>`).join("")}</select></div>
       </div></div>` : ""}
-    <div class="panel" id="pages-panel">
+    <div class="panel">
       <h3>Pagine da mostrare a Gemini</h3>
-      <p class="hint">Scegli le pagine che servono a <strong>capire</strong> il catalogo: indice, legende o "come leggere",
-        e 2-3 pagine tipo per ogni layout diverso (es. le due pagine di una scheda). Clic per selezionare,
-        <kbd>Maiusc</kbd>+clic per un intervallo. Massimo 40.</p>
-      <div class="row"><input type="text" id="pages-text" style="flex:1" placeholder="es. 1-4, 38-41, 120">
+      <p class="hint">Scegli le pagine che servono a <strong>capire</strong> i cataloghi: indice, legende o "come leggere",
+        e 2-3 pagine tipo per ogni layout diverso${docs.length > 1 ? ", <strong>anche da PDF diversi</strong>" : ""}.
+        Clic per selezionare, <kbd>Maiusc</kbd>+clic per un intervallo, doppio clic per ingrandire. Massimo ${MAX_CONTEXT_PAGES}.</p>
+      ${docs.length > 1 ? `<div class="tabs" id="doc-tabs" style="margin:.5rem 0">${docs.map(d =>
+        `<a href="#" data-doc-tab="${esc(d.id)}">${esc(d.title)} <span class="badge" data-count="${esc(d.id)}"></span></a>`).join("")}</div>` : ""}
+      <div class="row"><input type="text" id="pages-text" style="flex:1" placeholder="pagine di questo PDF, es. 1-4, 38-41">
         <button class="secondary" id="pages-suggest" type="button">Proposta automatica</button>
         <button class="secondary" id="pages-clear" type="button">Nessuna</button></div>
       <p class="hint" id="pages-count"></p>
@@ -363,51 +491,60 @@ async function renderSetupForm(ctx, data) {
         Puoi lasciarlo vuoto: Gemini proporrà l'indicizzazione più utile.</p>
       <textarea id="goal" rows="5" placeholder="Es. Una riga per ogni coppia codice FIN / codice OEM di ogni motore, con costruttore, motore, cilindri, alesaggio, corsa e versione dall'intestazione. Se manca il codice OEM lascia vuoto."></textarea>
       <label>CSV di riferimento <span class="muted small">(facoltativo)</span></label>
-      <p class="hint">Un indice già fatto, anche di altri cataloghi: Gemini ne copia colonne e stile. Se contiene
-        righe di questo catalogo, ogni prova viene confrontata con esso.</p>
+      <p class="hint">Un indice già fatto: Gemini ne copia colonne e stile. Se contiene righe di questi PDF
+        (stesso nome file nella colonna del file d'origine), ogni prova viene confrontata con esso.</p>
       <div class="row"><input type="file" id="reference" accept=".csv,text/csv"><span id="reference-info" class="small muted"></span></div>
     </div>
     <details class="panel"><summary>Opzioni avanzate</summary>
       <label>Nome di primer e specifica</label>
-      <input type="text" id="name" placeholder="${esc(docId)}">
-      <p class="hint">Di default l'identificativo del catalogo (partendo da file esistenti: i loro nomi).</p>
+      <input type="text" id="name" placeholder="${esc(pid)}">
+      <p class="hint">Di default l'identificativo del progetto (partendo da file esistenti: i loro nomi).</p>
     </details>
     <div class="row"><span class="spacer"></span><button id="next" type="button">Avanti: rivedi prima dell'invio</button></div>`;
 
-  // pagine: miniature + campo di testo sincronizzati
   const thumbs = $("#thumbs"), text = $("#pages-text"), count = $("#pages-count");
-  thumbs.innerHTML = Array.from({ length: doc.page_count }, (_, i) => i + 1).map(p =>
-    `<div class="thumb" data-p="${p}"><img loading="lazy" src="/api/documents/${encodeURIComponent(docId)}/thumb/${p}" alt="pagina ${p}">${p}</div>`).join("");
-  const sync = (fromText = false) => {
-    if (!fromText) text.value = formatPages([...selected]);
-    $$(".thumb", thumbs).forEach(t => t.classList.toggle("selected", selected.has(+t.dataset.p)));
-    const n = selected.size;
-    count.innerHTML = n > 40 ? `<span class="badge error">${n} pagine: troppe (massimo 40)</span>` : `${n} pagine selezionate`;
-  };
+  const activeDoc = () => docs.find(d => d.id === active);
+  const pagesOf = id => { if (!selection.has(id)) selection.set(id, new Set()); return selection.get(id); };
+
+  function drawThumbs() {
+    const d = activeDoc();
+    thumbs.innerHTML = Array.from({ length: d.page_count }, (_, i) => i + 1).map(p =>
+      `<div class="thumb" data-p="${p}"><img loading="lazy" src="/api/documents/${enc(d.id)}/thumb/${p}" alt="pagina ${p}">${p}</div>`).join("");
+    $$("[data-doc-tab]").forEach(a => a.classList.toggle("active", a.dataset.docTab === active));
+    sync();
+  }
+  function sync(fromText = false) {
+    const own = pagesOf(active);
+    if (!fromText) text.value = formatPages([...own]);
+    $$(".thumb", thumbs).forEach(t => t.classList.toggle("selected", own.has(+t.dataset.p)));
+    $$("[data-count]").forEach(b => { const n = (selection.get(b.dataset.count) || new Set()).size; b.textContent = n || ""; });
+    const n = selectionSize(selection);
+    count.innerHTML = (n > MAX_CONTEXT_PAGES ? `<span class="badge error">${n} pagine: troppe (massimo ${MAX_CONTEXT_PAGES})</span>`
+      : `${n} pagine selezionate`) + (n ? ` — ${esc(selectionText(selection, docs))}` : "");
+  }
   thumbs.addEventListener("click", e => {
     const t = e.target.closest(".thumb"); if (!t) return;
-    const p = +t.dataset.p;
+    const p = +t.dataset.p, own = pagesOf(active);
     if (e.shiftKey && lastClicked) {
       const [a, b] = [Math.min(lastClicked, p), Math.max(lastClicked, p)];
-      for (let q = a; q <= b; q++) selected.add(q);
-    } else selected.has(p) ? selected.delete(p) : selected.add(p);
+      for (let q = a; q <= b; q++) own.add(q);
+    } else own.has(p) ? own.delete(p) : own.add(p);
     lastClicked = p; sync();
   });
-  thumbs.addEventListener("dblclick", e => { const t = e.target.closest(".thumb"); if (t) showPage(docId, t.dataset.p); });
+  thumbs.addEventListener("dblclick", e => { const t = e.target.closest(".thumb"); if (t) showPage(active, t.dataset.p, activeDoc().title); });
   text.addEventListener("change", () => {
-    try { selected = new Set(parsePages(text.value, doc.page_count)); sync(true); }
-    catch (e) { toast(e.message); }
+    try { selection.set(active, new Set(parsePages(text.value, activeDoc().page_count))); sync(true); }
+    catch (err) { toast(err.message); }
   });
-  $("#pages-suggest").addEventListener("click", () => { selected = new Set(parsePages(data.suggested_pages, doc.page_count)); sync(); });
-  $("#pages-clear").addEventListener("click", () => { selected = new Set(); sync(); });
-  sync();
+  $$("[data-doc-tab]").forEach(a => a.addEventListener("click", e => { e.preventDefault(); active = a.dataset.docTab; lastClicked = null; drawThumbs(); }));
+  $("#pages-suggest").addEventListener("click", () => { selection = selectionFrom(data.suggested_pages); sync(); });
+  $("#pages-clear").addEventListener("click", () => { selection = new Map(); sync(); });
+  drawThumbs();
 
-  // obiettivo: bozza salvata nel browser
   const goal = $("#goal");
   goal.value = drafts.get(goalKey) || (session ? session.state.goal : "");
   goal.addEventListener("input", () => drafts.set(goalKey, goal.value));
 
-  // riferimento: caricato subito, così si vede se è leggibile
   $("#reference").addEventListener("change", async e => {
     const file = e.target.files[0]; if (!file) { reference = null; return; }
     const form = new FormData(); form.append("file", file);
@@ -417,7 +554,6 @@ async function renderSetupForm(ctx, data) {
     } catch (err) { reference = null; e.target.value = ""; showError(err); }
   });
 
-  // modalità: da zero / da file esistenti
   const modeExisting = () => canReuse && $("input[name=mode]:checked").value === "existing";
   $$("input[name=mode]").forEach(r => r.addEventListener("change", () => {
     $("#existing").hidden = !modeExisting();
@@ -427,37 +563,38 @@ async function renderSetupForm(ctx, data) {
   if (back) back.addEventListener("click", e => { e.preventDefault(); renderSetup(ctx); });
 
   $("#next").addEventListener("click", e => busy(e.target, async () => {
-    if (!selected.size && !modeExisting()) throw new Error("Seleziona almeno una pagina.");
-    if (selected.size > 40) throw new Error("Hai selezionato più di 40 pagine.");
+    const n = selectionSize(selection);
+    if (!n && !modeExisting()) throw new Error("Seleziona almeno una pagina.");
+    if (n > MAX_CONTEXT_PAGES) throw new Error(`Hai selezionato più di ${MAX_CONTEXT_PAGES} pagine.`);
     if (session && session.round) {
       const ok = await confirmDialog({ title: "Sostituire la configurazione esistente?", danger: true, ok: "Sostituisci",
         html: `<p>La configurazione attuale (${session.state.last_round} versioni) verrà sostituita da una nuova.
                I primer e le specifiche già <em>salvati</em> nel workspace non vengono toccati.</p>` });
       if (!ok) return;
     }
-    const body = { context_pages: formatPages([...selected]), goal: goal.value, reference: reference ? reference.path : null,
-                   name: $("#name").value.trim() || null };
+    const body = { context_pages: selectionPairs(selection, docs), goal: goal.value,
+                   reference: reference ? reference.path : null, name: $("#name").value.trim() || null };
     if (modeExisting()) { body.from_primer = $("#from-primer").value; body.from_spec = $("#from-spec").value; }
-    const created = await api("POST", `/api/documents/${encodeURIComponent(docId)}/setup`, body);
-    if (created.round) toast("Partenza da primer e specifica esistenti: esegui una prova per verificarli su questo catalogo.", 6000);
+    const created = await api("POST", `/api/projects/${enc(pid)}/setup`, body);
+    if (created.round) toast("Partenza da primer e specifica esistenti: esegui una prova per verificarli su questi PDF.", 6000);
     renderSetup(ctx);
   }));
 }
 
 function renderSetupReview(ctx, session) {
-  const { docId, box } = ctx;
+  const { pid, box } = ctx;
   const st = session.state;
   box.innerHTML = `
     ${steps(2)}
     <div class="panel">
       <h3>Riepilogo prima dell'invio</h3>
       <p><strong>Pagine mostrate a Gemini:</strong> ${esc(st.context_pages_text)} (${st.context_pages.length} pagine)</p>
-      <div class="thumbs" style="max-height:9rem">${st.context_pages.map(p =>
-        `<div class="thumb" data-page="${p}"><img loading="lazy" src="/api/documents/${encodeURIComponent(docId)}/thumb/${p}" alt="">${p}</div>`).join("")}</div>
+      <div class="thumbs" style="max-height:10rem">${st.context_pages.map(([d, p]) =>
+        `<div class="thumb" data-doc="${esc(d)}" data-page="${p}"><img loading="lazy" src="/api/documents/${enc(d)}/thumb/${p}" alt="">${ctx.project.documents.length > 1 ? esc(ctx.titles[d]) + " " : ""}p.${p}</div>`).join("")}</div>
       <p><strong>Obiettivo:</strong> ${st.goal ? esc(st.goal) : "<em>non indicato: Gemini proporrà l'indicizzazione</em>"}</p>
       <p><strong>CSV di riferimento:</strong> ${esc(st.reference || "nessuno")}</p>
       <div class="note">Verrà inviata <strong>1 richiesta</strong> a Gemini con l'estratto PDF delle pagine scelte; poi una
-        prova di estrazione su 2-4 pagine (<strong>2-4 richieste</strong>). Di solito servono uno o due minuti.</div>
+        prova di estrazione su alcune pagine, almeno una per PDF (<strong>circa ${Math.max(2, ctx.project.documents.length)}-${Math.max(4, ctx.project.documents.length)} richieste</strong>).</div>
       <div class="row">
         <button class="secondary" id="edit" type="button">&larr; Modifica</button>
         <button class="secondary" id="prompt" type="button">Mostra il prompt</button>
@@ -465,18 +602,18 @@ function renderSetupReview(ctx, session) {
         <button class="gemini" id="send" type="button">Invia a Gemini</button>
       </div>
     </div>`;
-  bindPageClicks(box, docId);
+  bindPageClicks(box, ctx.titles);
   $("#edit").addEventListener("click", () => renderSetup(ctx, { forceForm: true }));
   $("#prompt").addEventListener("click", e => busy(e.target, async () => {
-    const p = await api("GET", `/api/documents/${encodeURIComponent(docId)}/setup/prompt?kind=initial`);
+    const p = await api("GET", `/api/projects/${enc(pid)}/setup/prompt?kind=initial`);
     showText("Prompt che verrà inviato a Gemini", p.prompt, `Allegato: ${p.attachment}`);
   }));
   $("#send").addEventListener("click", async e => {
     const ok = await confirmDialog({ title: "Inviare a Gemini?", ok: "Invia",
-      html: `<p>1 richiesta di analisi con ${st.context_pages.length} pagine, poi la prova di estrazione su alcune pagine.</p>` });
+      html: `<p>1 richiesta di analisi con ${st.context_pages.length} pagine, poi la prova di estrazione.</p>` });
     if (!ok) return;
     await busy(e.target, async () => {
-      const job = await api("POST", `/api/documents/${encodeURIComponent(docId)}/setup/start`);
+      const job = await api("POST", `/api/projects/${enc(pid)}/setup/start`);
       box.innerHTML = "";
       watchJob(ctx.jobBox, job, () => renderSetup(ctx));
     });
@@ -484,11 +621,10 @@ function renderSetupReview(ctx, session) {
 }
 
 function renderSetupRound(ctx, session) {
-  const { docId, box } = ctx;
+  const { pid, box, project } = ctx;
   const st = session.state, r = session.round, spec = r.spec, preview = r.preview;
-  const feedbackKey = `feedback:${docId}`;
-  const enc = encodeURIComponent(docId);
-  const previewCount = st.preview_pages.length;
+  const feedbackKey = `feedback:${pid}`;
+  const multi = project.documents.length > 1;
 
   box.innerHTML = `
     ${steps(st.saved_at ? 4 : 3)}
@@ -514,10 +650,12 @@ function renderSetupRound(ctx, session) {
                 ${c.required ? ' <span class="badge">obbligatoria</span>' : ""}
                 ${c.context ? ' <span class="badge">intestazione</span>' : ""}</td><td>${esc(c.description)}</td></tr>`).join("")}
             </tbody></table></div>` : `<div class="note error">Specifica non valida: ${esc(spec.error)}</div>`}
+          ${multi && Object.keys(r.document_notes).length ? `<div class="note"><strong>Note per singoli PDF</strong><ul>
+            ${Object.entries(r.document_notes).map(([d, n]) => `<li><strong>${esc(ctx.titles[d] || d)}</strong>: ${esc(n)}</li>`).join("")}</ul></div>` : ""}
         </div>
         <div class="panel">
           <h3>Correzione</h3>
-          <p class="hint">Scrivi a parole cosa non va (es. "TIPO_COMPONENTE in maiuscolo", "a pagina 39 manca l'ENGINE KIT").
+          <p class="hint">Scrivi a parole cosa non va (es. "TIPO_COMPONENTE in maiuscolo", "a pagina 39 manca l'ENGINE KIT"${multi ? ', "nel PDF Kubota la versione è sotto il nome"' : ""}).
             Il testo resta una bozza finché non premi <em>Invia correzione</em>.</p>
           <textarea id="feedback" rows="5"></textarea>
           <div class="row" style="margin-top:.5rem">
@@ -532,6 +670,11 @@ function renderSetupRound(ctx, session) {
             <strong>v${v.round}</strong> · ${esc(v.origin)}${v.feedback ? ` — <span class="muted">${esc(v.feedback.slice(0, 90))}</span>` : ""}</li>`).join("")}</ul>
           <p class="hint">Clic su una versione per tornarci (nessuna richiesta a Gemini).</p>
         </div>
+        ${multi ? `<details class="panel"><summary>Note per singoli PDF (modificabili)</summary>
+          <p class="hint">Istruzioni in più valide solo per quel PDF; le colonne restano le stesse.</p>
+          ${project.documents.map(d => `<label>${esc(d.title)}</label><textarea data-doc-note="${esc(d.id)}" rows="2"></textarea>`).join("")}
+          <div class="row"><span class="spacer"></span><button id="notes-save" type="button" disabled>Salva come nuova versione</button></div>
+        </details>` : ""}
         <details class="panel"><summary>Primer (modificabile)</summary>
           <textarea id="primer" class="mono tall"></textarea>
           <div class="row"><span class="spacer"></span>
@@ -553,62 +696,57 @@ function renderSetupRound(ctx, session) {
             <input type="text" id="preview-pages" style="flex:1" value="${esc(st.preview_pages_text)}">
             <button class="gemini" id="preview-run" type="button">Rifai la prova</button>
           </div>
-          <p class="hint">La prova usa le stesse regole dell'indicizzazione vera. Massimo 6 pagine.</p>
-          ${preview ? renderPreview(preview, spec, docId) : `<div class="note">Nessuna prova per questa versione: premi <em>Rifai la prova</em>.</div>`}
+          <p class="hint">${multi ? 'Formato: <code>Alfa: 3-4; Beta: 12</code> (basta una parte del nome). Almeno una pagina per PDF viene sempre provata. '
+            : ""}La prova usa le stesse regole dell'indicizzazione vera.</p>
+          ${preview ? renderPreview(preview, spec, ctx) : `<div class="note">Nessuna prova per questa versione: premi <em>Rifai la prova</em>.</div>`}
         </div>
       </div>
     </div>`;
 
-  bindPageClicks(box, docId);
+  bindPageClicks(box, ctx.titles);
 
-  // correzione
   const feedback = $("#feedback");
   feedback.value = drafts.get(feedbackKey);
   feedback.addEventListener("input", () => drafts.set(feedbackKey, feedback.value));
   $("#feedback-prompt").addEventListener("click", e => busy(e.target, async () => {
-    const p = await api("GET", `/api/documents/${enc}/setup/prompt?kind=revise&feedback=${encodeURIComponent(feedback.value)}`);
+    const p = await api("GET", `/api/projects/${enc(pid)}/setup/prompt?kind=revise&feedback=${enc(feedback.value)}`);
     showText("Prompt di revisione che verrà inviato", p.prompt, `Allegato: ${p.attachment}`);
   }));
   $("#feedback-send").addEventListener("click", async e => {
     if (!feedback.value.trim()) return toast("Scrivi prima cosa correggere.");
     const ok = await confirmDialog({ title: "Inviare la correzione a Gemini?", ok: "Invia",
-      html: `<p>1 richiesta di revisione, poi una prova su ${previewCount || "2-4"} pagine.</p>
+      html: `<p>1 richiesta di revisione, poi una prova su ${Math.max(st.preview_pages.length, project.documents.length)} pagine.</p>
              <pre>${esc(feedback.value)}</pre>` });
     if (!ok) return;
     await busy(e.target, async () => {
-      const job = await api("POST", `/api/documents/${enc}/setup/revise`, { feedback: feedback.value });
+      const job = await api("POST", `/api/projects/${enc(pid)}/setup/revise`, { feedback: feedback.value });
       drafts.clear(feedbackKey);
       box.innerHTML = "";
       watchJob(ctx.jobBox, job, () => renderSetup(ctx));
     });
   });
 
-  // prova
   $("#preview-run").addEventListener("click", async e => {
-    const text = $("#preview-pages").value;
-    let pages;
-    try { pages = parsePages(text, ctx.doc.page_count); } catch (err) { return toast(err.message); }
-    if (!pages.length || pages.length > 6) return toast("Indica da 1 a 6 pagine.");
+    const text = $("#preview-pages").value.trim();
+    if (!text) return toast("Indica le pagine da provare.");
     const ok = await confirmDialog({ title: "Rifare la prova?", ok: "Esegui",
-      html: `<p>${pages.length} richiest${pages.length === 1 ? "a" : "e"} a Gemini (pagine ${esc(formatPages(pages))}).</p>` });
+      html: `<p>Una richiesta a Gemini per ogni pagina indicata (${esc(text)}), più una pagina per ogni PDF eventualmente non incluso.</p>` });
     if (!ok) return;
     await busy(e.target, async () => {
-      const job = await api("POST", `/api/documents/${enc}/setup/preview`, { pages: formatPages(pages) });
+      const job = await api("POST", `/api/projects/${enc(pid)}/setup/preview`, { pages: text });
       box.innerHTML = "";
       watchJob(ctx.jobBox, job, () => renderSetup(ctx));
     });
   });
 
-  // versioni
   $$("[data-round]").forEach(li => li.addEventListener("click", async () => {
     const n = +li.dataset.round;
     if (n === r.number) return;
     const ok = await confirmDialog({ title: `Tornare alla versione ${n}?`, ok: "Torna",
       html: "<p>Nessuna richiesta a Gemini. Le altre versioni restano disponibili.</p>" });
-    if (ok) await busy(null, async () => { await api("POST", `/api/documents/${enc}/setup/round/${n}`); renderSetup(ctx); });
+    if (ok) await busy(null, async () => { await api("POST", `/api/projects/${enc(pid)}/setup/round/${n}`); renderSetup(ctx); });
   }));
 
-  // modifiche manuali di primer e specifica
   for (const [kind, original] of [["primer", r.primer], ["spec", r.spec_text]]) {
     const area = $(`#${kind}`), save = $(`#${kind}-save`);
     area.value = original;
@@ -616,9 +754,21 @@ function renderSetupRound(ctx, session) {
     area.addEventListener("input", () => { save.disabled = area.value === original; });
     $(`#${kind}-reset`).addEventListener("click", () => { area.value = original; save.disabled = true; });
     save.addEventListener("click", e => busy(e.target, async () => {
-      await api("PUT", `/api/documents/${enc}/setup/${kind}`, { text: area.value });
+      await api("PUT", `/api/projects/${enc(pid)}/setup/${kind}`, { text: area.value });
       area.dataset.original = area.value;
       toast("Modifica salvata come nuova versione. Esegui una prova per verificarla.");
+      renderSetup(ctx);
+    }));
+  }
+  if (multi) {
+    const areas = $$("[data-doc-note]"), save = $("#notes-save");
+    areas.forEach(a => { a.value = r.document_notes[a.dataset.docNote] || ""; a.dataset.original = a.value;
+      a.addEventListener("input", () => { save.disabled = areas.every(x => x.value === x.dataset.original); }); });
+    save.addEventListener("click", e => busy(e.target, async () => {
+      const notes = Object.fromEntries(areas.map(a => [a.dataset.docNote, a.value]));
+      await api("PUT", `/api/projects/${enc(pid)}/setup/notes`, { notes });
+      areas.forEach(a => { a.dataset.original = a.value; });
+      toast("Note salvate come nuova versione. Esegui una prova per verificarle.");
       renderSetup(ctx);
     }));
   }
@@ -627,12 +777,14 @@ function renderSetupRound(ctx, session) {
   $("#save").addEventListener("click", e => saveSetup(ctx, session, e.target));
 }
 
-function renderPreview(p, spec, docId) {
+function renderPreview(p, spec, ctx) {
   const pageCol = spec.valid ? spec.page_column : null;
   const sourceCol = spec.valid ? spec.source_column : null;
-  const perPage = Object.entries(p.rows_per_page).map(([page, n]) =>
-    `<span class="badge ${n ? "ok" : "warn"}" data-page="${esc(page)}" style="cursor:pointer" title="Mostra la pagina">p.${esc(page)}: ${n} ${n === 1 ? "riga" : "righe"}</span>`).join(" ");
+  const perPage = p.rows_per_page.map(x =>
+    `<span class="badge ${x.rows ? "ok" : "warn"}" data-doc="${esc(x.document)}" data-page="${esc(x.page)}" style="cursor:pointer"
+       title="Mostra la pagina">${esc(x.label)}: ${x.rows} ${x.rows === 1 ? "riga" : "righe"}</span>`).join(" ");
   const c = p.comparison;
+  const multi = ctx.project.documents.length > 1;
   return `
     <p>${perPage}</p>
     ${Object.keys(p.failed).length ? `<div class="note error">Pagine fallite: ${Object.entries(p.failed).map(([k, v]) => `${esc(k)} (${esc(v)})`).join("; ")}</div>` : ""}
@@ -641,27 +793,29 @@ function renderPreview(p, spec, docId) {
       ${c.missing.length ? `<details><summary>${c.missing.length} righe mancanti</summary><ul class="small">${c.missing.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}
       ${c.extra.length ? `<details><summary>${c.extra.length} righe in più</summary><ul class="small">${c.extra.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}
       </div>` : p.comparison_note ? `<p class="hint">${esc(p.comparison_note)}</p>` : ""}
-    ${p.rows.length ? table(p.columns, p.rows, { hide: sourceCol ? [sourceCol] : [], pageColumn: pageCol, docId })
+    ${p.rows.length ? table(p.columns, p.rows, { hide: sourceCol && !multi ? [sourceCol] : [], pageColumn: pageCol,
+                                                 fileColumn: sourceCol, files: ctx.files, docId: ctx.project.documents[0].id })
                     : `<div class="note warn">Nessuna riga estratta.</div>`}
     <p class="hint">${p.total_rows} righe${pageCol ? " · clic su una riga per vedere la pagina" : ""} ·
-      <a href="/api/documents/${encodeURIComponent(docId)}/setup/preview.csv">scarica il CSV di prova</a></p>
+      <a href="/api/projects/${enc(ctx.pid)}/setup/preview.csv">scarica il CSV di prova</a></p>
     ${p.anomalies.length ? `<details><summary>${p.anomalies.length} segnalazioni dei controlli</summary>
       <ul class="small">${p.anomalies.map(a => `<li>${esc(a)}</li>`).join("")}</ul></details>` : ""}`;
 }
 
 async function saveSetup(ctx, session, button, extra = {}) {
-  const enc = encodeURIComponent(ctx.docId);
+  const pid = enc(ctx.pid);
   if (!extra.overwrite && !extra.name) {
     const ok = await confirmDialog({ title: "Salvare la configurazione?", ok: "Salva",
-      html: `<p>Primer <code>${esc(session.state.primer_name)}</code> e specifica <code>${esc(session.state.spec_name)}</code>
-             (versione ${session.round.number}) diventano quelli usati per indicizzare questo catalogo.</p>` });
+      html: `<p>Primer <code>${esc(session.state.primer_name)}</code>, specifica <code>${esc(session.state.spec_name)}</code>
+             ${ctx.project.documents.length > 1 ? "e note per i singoli PDF " : ""}(versione ${session.round.number})
+             diventano le regole usate per indicizzare tutti i PDF del progetto.</p>` });
     if (!ok) return;
   }
   await busy(button, async () => {
     try {
-      const res = await api("POST", `/api/documents/${enc}/setup/save`, extra);
+      const res = await api("POST", `/api/projects/${pid}/setup/save`, extra);
       toast(res.reused_pages ? `Salvato. ${res.reused_pages} pagine della prova sono già contate come indicizzate.` : "Configurazione salvata.", 6000);
-      location.hash = `#/doc/${enc}/index`;
+      location.hash = `#/p/${pid}/index`;
     } catch (e) {
       if (e.status !== 409 || !e.data || !e.data.conflicts) throw e;
       const choice = await conflictDialog(e.data);
@@ -682,41 +836,44 @@ async function conflictDialog(info) {
 
 // ------------------------------------------------------------------ 2. INDICIZZAZIONE
 async function renderIndex(ctx) {
-  const { docId, box } = ctx;
-  const enc = encodeURIComponent(docId);
+  const { pid, box } = ctx;
   let plan;
-  try { plan = await api("GET", `/api/documents/${enc}/index/plan`); }
+  try { plan = await api("GET", `/api/projects/${enc(pid)}/index/plan`); }
   catch (e) {
     box.innerHTML = `<div class="panel note warn">${esc(e.message)}</div>
-      <p><a href="#/doc/${enc}/setup">Vai alla configurazione</a></p>`;
+      <p><a href="#/p/${enc(pid)}/setup">Vai alla configurazione</a></p>`;
     return;
   }
+  const changed = plan.spec_changed;
   box.innerHTML = `
     <div class="panel">
-      <h3>Indicizzazione completa</h3>
-      <p>Specifica <code>${esc(plan.spec)}</code> · primer <code>${esc(plan.primer || "nessuno")}</code> ·
-        pagine ${esc(plan.pages_text)} (${plan.pages})</p>
-      <p><span class="badge ok">${plan.done} fatte</span> <span class="badge">${plan.todo} da fare</span>
-        ${plan.failed ? `<span class="badge error">${plan.failed} fallite (verranno ritentate)</span>` : ""}</p>
-      ${plan.spec_changed ? `<div class="note warn">Primer o specifica sono cambiati dopo l'ultima indicizzazione:
-        per non mescolare risultati ottenuti con regole diverse, le pagine vanno rifatte da capo.</div>` : ""}
+      <h3>Indicizzazione di tutti i PDF</h3>
+      <p>Specifica <code>${esc(plan.spec)}</code> · primer <code>${esc(plan.primer || "nessuno")}</code></p>
+      <div class="table-wrap"><table><thead><tr><th>PDF</th><th>Pagine</th><th>Fatte</th><th>Da fare</th><th></th></tr></thead><tbody>
+        ${plan.documents.map(d => `<tr><td><strong>${esc(d.title)}</strong>${d.has_notes ? ' <span class="badge">note</span>' : ""}</td>
+          <td>${esc(d.pages_text)} (${d.pages})</td><td>${d.done}</td><td>${d.todo}</td>
+          <td>${d.spec_changed ? '<span class="badge warn">regole cambiate: da rifare</span>' : d.failed ? `<span class="badge error">${d.failed} fallite</span>` : d.todo ? "" : '<span class="badge ok">completo</span>'}</td></tr>`).join("")}
+      </tbody></table></div>
+      <p style="margin-top:.75rem"><span class="badge ok">${plan.done} pagine fatte</span> <span class="badge">${plan.todo} da fare</span></p>
+      ${changed.length ? `<div class="note warn">Per ${changed.length} PDF primer, specifica o note sono cambiati dopo l'indicizzazione:
+        per non mescolare risultati ottenuti con regole diverse, quelle pagine vanno rifatte.</div>` : ""}
       ${plan.todo ? `<p>Tempo stimato: circa <strong>${plan.estimate_minutes} minuti</strong> (si adatta alle quote API).
           Puoi chiudere la pagina: il lavoro continua finché il server è acceso, e si riprende se lo fermi.</p>
         <div class="row"><span class="spacer"></span>
-          <button class="gemini" id="start" type="button">${plan.spec_changed ? "Rifai da capo" : "Avvia"} l'indicizzazione (${plan.todo} pagine)</button></div>`
-      : `<div class="note">Tutte le pagine sono indicizzate. <a href="#/doc/${enc}/results">Vai ai risultati</a></div>`}
+          <button class="gemini" id="start" type="button">Avvia l'indicizzazione (${plan.todo} pagine)</button></div>`
+      : `<div class="note">Tutte le pagine sono indicizzate. <a href="#/p/${enc(pid)}/results">Vai ai risultati</a></div>`}
     </div>`;
   const start = $("#start");
   if (start) start.addEventListener("click", async () => {
     const ok = await confirmDialog({ title: "Avviare l'indicizzazione?", ok: "Avvia",
-      html: `<p>${plan.todo} richieste a Gemini, circa ${plan.estimate_minutes} minuti.</p>
-             ${plan.spec_changed ? "<p><strong>I risultati precedenti verranno sostituiti.</strong></p>" : ""}` });
+      html: `<p>${plan.todo} richieste a Gemini su ${plan.documents.filter(d => d.todo).length} PDF, circa ${plan.estimate_minutes} minuti.</p>
+             ${changed.length ? `<p><strong>I risultati precedenti di ${changed.map(id => esc(ctx.titles[id] || id)).join(", ")} verranno sostituiti.</strong></p>` : ""}` });
     if (!ok) return;
     await busy(start, async () => {
-      const job = await api("POST", `/api/documents/${enc}/index`, { force: plan.spec_changed });
+      const job = await api("POST", `/api/projects/${enc(pid)}/index`, { force: changed.length > 0 });
       box.innerHTML = "";
       watchJob(ctx.jobBox, job, j => {
-        if (j.status === "completato" && j.result && !j.result.stopped_reason) location.hash = `#/doc/${enc}/results`;
+        if (j.status === "completato" && j.result && !j.result.stopped_reason) location.hash = `#/p/${enc(pid)}/results`;
         else { if (j.result && j.result.stopped_reason) toast(j.result.stopped_reason, 8000); renderIndex(ctx); }
       });
     });
@@ -725,46 +882,55 @@ async function renderIndex(ctx) {
 
 // ------------------------------------------------------------------ 3. RISULTATI
 async function renderResults(ctx) {
-  const { docId, box } = ctx;
-  const enc = encodeURIComponent(docId);
+  const { pid, box } = ctx;
   let res;
-  try { res = await api("GET", `/api/documents/${enc}/results`); }
+  try { res = await api("GET", `/api/projects/${enc(pid)}/results`); }
   catch (e) { box.innerHTML = `<div class="panel note warn">${esc(e.message)}</div>`; return; }
   if (!res.available) {
-    box.innerHTML = `<div class="panel note">Nessun risultato: <a href="#/doc/${enc}/index">avvia l'indicizzazione</a>.</div>`;
+    box.innerHTML = `<div class="panel note">Nessun risultato: <a href="#/p/${enc(pid)}/index">avvia l'indicizzazione</a>.</div>`;
     return;
   }
   const s = res.stats;
   box.innerHTML = `
     <div class="panel">
-      <h3>CSV prodotto</h3>
+      <h3>CSV unico del progetto</h3>
       <p><span class="badge ok">${s.righe_finali} righe</span>
-        <span class="badge">${s.pagine_con_righe}/${s.pagine_previste} pagine con righe</span>
+        <span class="badge">${s.documenti_indicizzati}/${s.documenti_totali} PDF</span>
         ${s.pagine_da_elaborare ? `<span class="badge warn">${s.pagine_da_elaborare} pagine non ancora elaborate</span>` : ""}
         ${s.errori ? `<span class="badge error">${s.errori} errori</span>` : ""}
-        ${s.avvisi ? `<span class="badge warn">${s.avvisi} avvisi</span>` : ""}
-        <span class="badge">${s.duplicati_rimossi} duplicati rimossi</span></p>
-      ${res.stale ? `<div class="note warn">Primer o specifica sono cambiati dopo l'indicizzazione: questo CSV usa le regole precedenti.
-        <a href="#/doc/${enc}/index">Rifai l'indicizzazione</a>.</div>` : ""}
+        ${s.avvisi ? `<span class="badge warn">${s.avvisi} avvisi</span>` : ""}</p>
+      ${res.not_indexed.length ? `<div class="note warn">Non ancora indicizzati: ${res.not_indexed.map(id => esc(ctx.titles[id] || id)).join(", ")}.
+        <a href="#/p/${enc(pid)}/index">Indicizzali</a>.</div>` : ""}
+      ${res.stale.length ? `<div class="note warn">Regole cambiate dopo l'indicizzazione per: ${res.stale.map(id => esc(ctx.titles[id] || id)).join(", ")}.
+        <a href="#/p/${enc(pid)}/index">Rifalli</a>.</div>` : ""}
       <div class="row">
-        <a href="/api/documents/${enc}/download/csv"><button type="button">Scarica il CSV</button></a>
-        ${res.anomalies_total ? `<a href="/api/documents/${enc}/download/anomalie"><button class="secondary" type="button">Scarica le anomalie</button></a>` : ""}
+        <a href="/api/projects/${enc(pid)}/download/csv"><button type="button">Scarica il CSV unico</button></a>
+        ${res.anomalies_total ? `<a href="/api/projects/${enc(pid)}/download/anomalie"><button class="secondary" type="button">Scarica le anomalie</button></a>` : ""}
+        <a href="/api/projects/${enc(pid)}/search" target="_blank" rel="noopener"><button class="secondary" type="button">Apri la pagina di ricerca</button></a>
         <span class="spacer"></span>
         <button class="secondary" id="regen" type="button">Rigenera (senza Gemini)</button>
       </div>
+      <p class="hint">La pagina di ricerca è anche salvata come file autonomo in <code>data/exports/${esc(pid)}/ricerca.html</code>:
+        si apre con un doppio clic, senza bisogno del server.</p>
     </div>
+    <div class="panel"><h3>Per PDF</h3>
+      <div class="table-wrap"><table><thead><tr><th>PDF</th><th>Righe</th><th>Errori</th><th>Avvisi</th><th></th></tr></thead><tbody>
+        ${res.documents.map(d => `<tr><td><strong>${esc(d.title)}</strong>${d.stale ? ' <span class="badge warn">regole cambiate</span>' : ""}</td>
+          <td>${d.rows}</td><td>${d.errors}</td><td>${d.warnings}</td>
+          <td><a href="/api/projects/${enc(pid)}/download/documento?doc=${enc(d.id)}">CSV di questo PDF</a></td></tr>`).join("")}
+      </tbody></table></div></div>
     ${res.anomalies_total ? `<div class="panel"><h3>Da controllare</h3>
       <p><span class="badge error">${res.anomalies_by_level.errore} errori</span>
         <span class="badge warn">${res.anomalies_by_level.avviso} avvisi</span>
         <span class="badge">${res.anomalies_by_level.info} note</span></p>
       <p class="hint">Prima gli errori, poi gli avvisi, infine le note di Gemini. Clic su una riga per vedere la pagina.</p>
-      ${table(["livello", "pagina", "riga", "colonna", "valore", "problema"],
-        res.anomalies.map(a => ({ livello: a.level, pagina: a.page ?? "", riga: a.row ?? "", colonna: a.column ?? "", valore: a.value, problema: a.problem })),
-        { pageColumn: "pagina", docId })}</div>` : ""}
+      ${table(["file", "livello", "pagina", "riga", "colonna", "valore", "problema"],
+        res.anomalies.map(a => ({ file: a.file, livello: a.level, pagina: a.page ?? "", riga: a.row ?? "", colonna: a.column ?? "", valore: a.value, problema: a.problem })),
+        { pageColumn: "pagina", fileColumn: "file", files: ctx.files })}</div>` : ""}
     <div class="panel"><h3>Prime righe</h3>
-      ${table(res.columns, res.rows, { pageColumn: res.columns.find(c => /pagin/i.test(c)) || null, docId })}</div>`;
-  bindPageClicks(box, docId);
-  $("#regen").addEventListener("click", e => busy(e.target, async () => { await renderResults(ctx); toast("CSV rigenerato."); }));
+      ${table(res.columns, res.rows, { pageColumn: res.page_column, fileColumn: res.source_column, files: ctx.files })}</div>`;
+  bindPageClicks(box, ctx.titles);
+  $("#regen").addEventListener("click", e => busy(e.target, async () => { await renderResults(ctx); toast("CSV e pagina di ricerca rigenerati."); }));
 }
 
 // ------------------------------------------------------------------ avvio

@@ -4,13 +4,15 @@ Espone delle API JSON sopra la stessa logica usata dalla riga di comando (``App`
 ``SetupSession``, ``Extractor``) e serve la pagina web in ``static/``. Ascolta solo su
 127.0.0.1: è raggiungibile solo da questo computer, e le chiavi API restano nel file .env.
 
+Tutto è organizzato per **progetto** (uno o più PDF con la stessa struttura, un CSV unico).
+
 Regole dell'interfaccia, garantite anche qui:
 
-- niente parte verso Gemini se non da un endpoint esplicito (``.../start``,
-  ``.../revise``, ``.../preview``, ``.../index``), che la pagina chiama solo dopo una
-  conferma dell'utente;
-- le operazioni lunghe sono *lavori* in background (vedi ``jobs.py``), uno per documento;
-- i prompt si possono vedere prima dell'invio (``.../prompt``).
+- niente parte verso Gemini se non da un endpoint esplicito (``.../setup/start``,
+  ``.../setup/revise``, ``.../setup/preview``, ``.../index``), che la pagina chiama solo
+  dopo una conferma dell'utente;
+- le operazioni lunghe sono *lavori* in background (vedi ``jobs.py``), uno per progetto;
+- i prompt si possono vedere prima dell'invio (``.../setup/prompt``).
 """
 
 from __future__ import annotations
@@ -21,20 +23,28 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from ragpdf import __version__
 from ragpdf.app import App, PrimerMissingError
 from ragpdf.core.documents import Document, DocumentError, DuplicateDocumentError
 from ragpdf.core.gemini import GeminiError, load_api_keys
-from ragpdf.core.manifest import DONE, FAILED, Manifest
+from ragpdf.core.manifest import DONE, Manifest
+from ragpdf.core.page_runner import RunControl
 from ragpdf.core.pdf_tools import has_text_layer, render_thumbnail
-from ragpdf.core.render import format_pages, parse_page_ranges, render_pages
+from ragpdf.core.projects import DocumentSettings, Project, ProjectError
+from ragpdf.core.render import parse_page_ranges, render_pages
 from ragpdf.core.workspace import slugify
 from ragpdf.indexing.extractor import Extractor, SpecChangedError, selected_pages
 from ragpdf.indexing.spec import SpecError, read_csv_rows
-from ragpdf.setup_session import SetupError, SetupSession, default_context_pages
+from ragpdf.setup_session import (
+    SetupError,
+    SetupSession,
+    default_context_refs,
+    format_page_refs,
+    parse_page_refs,
+)
 from ragpdf.web.jobs import JobConflictError, JobManager
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -59,6 +69,10 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
     async def _doc(_: Request, e: DocumentError):
         return _error(404 if "non trovato" in str(e) else 400, str(e))
 
+    @api.exception_handler(ProjectError)
+    async def _proj(_: Request, e: ProjectError):
+        return _error(404 if "non trovato" in str(e) else 400, str(e))
+
     @api.exception_handler(SpecChangedError)
     async def _changed(_: Request, e: SpecChangedError):
         return _error(409, str(e) + " Per applicare le regole attuali rifai l'indicizzazione da capo.",
@@ -78,14 +92,23 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         return _error(404, str(e))
 
     # ------------------------------------------------------------------ utility
-    def doc_or_404(doc_id: str) -> Document:
+    def project_or_404(pid: str) -> Project:
+        return app.projects.get(pid)
+
+    def doc_of(project: Project, doc_id: str) -> Document:
+        if doc_id not in project.info.documents:
+            raise HTTPException(404, f"Il documento '{doc_id}' non fa parte del progetto.")
         return app.documents.get(doc_id)
 
-    def session_or_404(doc: Document) -> SetupSession:
-        session = SetupSession.load(app, doc)
+    def session_or_404(project: Project) -> SetupSession:
+        session = SetupSession.load(app, project)
         if session is None:
-            raise HTTPException(404, "Nessuna configurazione guidata per questo documento.")
+            raise HTTPException(404, "Nessuna configurazione guidata per questo progetto.")
         return session
+
+    def no_job(project: Project) -> None:
+        if jobs.active_for(project.id):
+            raise HTTPException(409, "C'è un'operazione in corso su questo progetto.")
 
     def usage() -> dict[str, Any] | None:
         u = getattr(app._client, "usage", None)
@@ -94,20 +117,45 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         return {"requests": u.requests, "input_tokens": u.input_tokens, "output_tokens": u.output_tokens,
                 "text": u.describe()}
 
-    def document_summary(doc: Document) -> dict[str, Any]:
-        indexing = []
-        for spec_name in doc.list_extractions():
-            m = Manifest.load_or_create(doc.extraction_dir(spec_name) / "manifest.json", doc.info.page_count)
-            c = m.counts()
-            indexing.append({"spec": spec_name, "done": c.get(DONE, 0), "failed": c.get(FAILED, 0)})
-        session = SetupSession.load(app, doc)
-        job = jobs.active_for(doc.id)
+    def refs_from_body(value: Any, docs: list[Document]) -> list[tuple[str, int]]:
+        """Pagine come lista ``[[doc, pagina], ...]`` oppure testo ``"alfa: 1-3; beta: 2"``."""
+        if isinstance(value, list):
+            ids = {d.id: d for d in docs}
+            refs = []
+            for item in value:
+                doc_id, page = str(item[0]), int(item[1])
+                if doc_id not in ids or not 1 <= page <= ids[doc_id].info.page_count:
+                    raise ValueError(f"Pagina non valida: {doc_id} p.{page}")
+                if (doc_id, page) not in refs:
+                    refs.append((doc_id, page))
+            return refs
+        return parse_page_refs(str(value or ""), docs)
+
+    def doc_status(project: Project, doc: Document) -> dict[str, Any]:
+        info: dict[str, Any] = {
+            "id": doc.id, "title": doc.info.title, "source_filename": doc.info.source_filename,
+            "page_count": doc.info.page_count, "settings": project.settings_for(doc.id).model_dump(),
+            "done": 0, "failed": 0,
+        }
+        if project.info.spec:
+            manifest_path = doc.extraction_dir(project.info.spec) / "manifest.json"
+            if manifest_path.exists():
+                c = Manifest.load_or_create(manifest_path, doc.info.page_count).counts()
+                info.update(done=c.get(DONE, 0), failed=c.get("failed", 0))
+        return info
+
+    def project_summary(project: Project) -> dict[str, Any]:
+        docs = app.project_documents(project)
+        session = SetupSession.load(app, project)
+        job = jobs.active_for(project.id)
+        statuses = [doc_status(project, d) for d in docs]
         return {
-            **doc.info.model_dump(),
-            "indexing": indexing,
+            **project.info.model_dump(exclude={"settings"}),
+            "documents": statuses,
+            "page_count": sum(d.info.page_count for d in docs),
+            "done": sum(s["done"] for s in statuses),
             "setup": None if session is None else {
-                "round": session.state.current_round,
-                "saved": bool(session.state.saved_at),
+                "round": session.state.current_round, "saved": bool(session.state.saved_at),
             },
             "job": job.to_dict() if job else None,
         }
@@ -131,13 +179,31 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
     def library():
         return {"primers": app.workspace.list_primers(), "specs": app.workspace.list_specs()}
 
-    # ------------------------------------------------------------------ documenti
-    @api.get("/api/documents")
-    def list_documents():
-        return [document_summary(d) for d in app.documents.list()]
+    # ------------------------------------------------------------------ progetti
+    @api.get("/api/projects")
+    def list_projects():
+        return [project_summary(p) for p in app.projects.list()]
 
-    @api.post("/api/documents")
-    def upload_document(file: UploadFile = File(...)):
+    @api.post("/api/projects")
+    def create_project(body: dict = Body(...)):
+        name = str(body.get("name") or "").strip()
+        if not name:
+            raise ValueError("Dai un nome al progetto.")
+        return project_summary(app.projects.create(name))
+
+    @api.get("/api/projects/{pid}")
+    def get_project(pid: str):
+        return project_summary(project_or_404(pid))
+
+    @api.delete("/api/projects/{pid}")
+    def delete_project(pid: str):
+        project = project_or_404(pid)
+        no_job(project)
+        return {"deleted": project.id, "documents_deleted": app.remove_project(project)}
+
+    @api.post("/api/projects/{pid}/documents")
+    def upload_document(pid: str, file: UploadFile = File(...)):
+        project = project_or_404(pid)
         name = Path(file.filename or "documento.pdf").name
         if not name.lower().endswith(".pdf"):
             raise HTTPException(400, "Il file deve essere un PDF.")
@@ -145,36 +211,55 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             target = Path(tmp) / name
             with open(target, "wb") as out:
                 shutil.copyfileobj(file.file, out)
-            doc = app.documents.add(target)
-        result = document_summary(doc)
-        result["scanned"] = not has_text_layer(doc.pdf_path)
+            try:
+                doc = app.add_document(target, project=project)
+                already = False
+            except DuplicateDocumentError as e:
+                doc = app.documents.get(e.existing.id)
+                app.projects.add_document(project, doc.id)
+                already = True
+        result = doc_status(app.projects.get(project.id), doc)
+        result.update(scanned=not has_text_layer(doc.pdf_path), already_present=already)
         return result
 
-    @api.get("/api/documents/{doc_id}")
-    def get_document(doc_id: str):
-        return document_summary(doc_or_404(doc_id))
+    @api.delete("/api/projects/{pid}/documents/{doc_id}")
+    def remove_document(pid: str, doc_id: str):
+        project = project_or_404(pid)
+        no_job(project)
+        doc = doc_of(project, doc_id)
+        return {"removed": doc.id, "deleted": app.remove_from_project(project, doc)}
 
-    @api.delete("/api/documents/{doc_id}")
-    def delete_document(doc_id: str):
-        doc = doc_or_404(doc_id)
-        if jobs.active_for(doc.id):
-            raise HTTPException(409, "C'è un'operazione in corso su questo documento.")
-        app.documents.remove(doc)
-        return {"deleted": doc.id}
+    @api.put("/api/projects/{pid}/documents/{doc_id}/settings")
+    def document_settings(pid: str, doc_id: str, body: dict = Body(...)):
+        project = project_or_404(pid)
+        doc = doc_of(project, doc_id)
+        pages = str(body.get("pages") or "").strip() or None
+        if pages:
+            parse_page_ranges(pages, doc.info.page_count)  # errore leggibile se non valide
+        project.set_settings(doc.id, DocumentSettings(notes=str(body.get("notes") or ""), pages=pages))
+        project.save()
+        return doc_status(project, doc)
 
+    # ------------------------------------------------------------------ pagine dei PDF
     @api.get("/api/documents/{doc_id}/thumb/{page}")
     def thumbnail(doc_id: str, page: int):
-        doc = doc_or_404(doc_id)
+        doc = app.documents.get(doc_id)
         path = render_thumbnail(doc.pdf_path, page, doc.folder / "thumbs" / f"page-{page:04d}.png")
         return FileResponse(path, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
 
     @api.get("/api/documents/{doc_id}/page/{page}")
     def page_image(doc_id: str, page: int):
-        doc = doc_or_404(doc_id)
+        doc = app.documents.get(doc_id)
         if not 1 <= page <= doc.info.page_count:
             raise HTTPException(404, "Pagina inesistente.")
         images = render_pages(doc.pdf_path, doc.pages_dir, app.config.render.dpi, [page], show_progress=False)
         return FileResponse(images[page], media_type="image/png")
+
+    @api.get("/api/documents/{doc_id}/pdf")
+    def document_pdf(doc_id: str):
+        doc = app.documents.get(doc_id)
+        return FileResponse(doc.pdf_path, media_type="application/pdf",
+                            headers={"Content-Disposition": f'inline; filename="{doc.info.source_filename}"'})
 
     @api.post("/api/references")
     def upload_reference(file: UploadFile = File(...)):
@@ -206,20 +291,21 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             raise HTTPException(404, "Operazione non trovata.")
         return job.to_dict()
 
-    @api.get("/api/documents/{doc_id}/job")
-    def document_job(doc_id: str):
-        job = jobs.latest_for(doc_id)
+    @api.get("/api/projects/{pid}/job")
+    def project_job(pid: str):
+        job = jobs.latest_for(pid)
         return job.to_dict() if job else None
 
     # ------------------------------------------------------------------ configurazione guidata
     def session_view(session: SetupSession) -> dict[str, Any]:
         st = session.state
+        docs = session.documents
         view: dict[str, Any] = {
             "state": {
-                "context_pages": st.context_pages,
-                "context_pages_text": format_pages(st.context_pages),
-                "preview_pages": st.preview_pages,
-                "preview_pages_text": format_pages(st.preview_pages),
+                "context_pages": [list(r) for r in st.context_pages],
+                "context_pages_text": format_page_refs(st.context_pages, docs),
+                "preview_pages": [list(r) for r in st.preview_pages],
+                "preview_pages_text": format_page_refs(st.preview_pages, docs),
                 "goal": st.goal,
                 "reference": Path(st.reference_csv).name if st.reference_csv else None,
                 "current_round": st.current_round,
@@ -253,8 +339,7 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         if info and session.preview_csv_path.exists():
             columns, rows = read_csv_rows(session.preview_csv_path)
             preview = {
-                "pages": info["pages"],
-                "rows_per_page": info["rows_per_page"],
+                "rows_per_page": info.get("rows_per_page") or [],
                 "failed": info.get("failed") or {},
                 "columns": columns,
                 "rows": rows[:MAX_ROWS_IN_VIEW],
@@ -272,34 +357,36 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             "primer": session.primer_text(),
             "spec_text": session.spec_text(),
             "spec": spec_info,
+            "document_notes": session.document_notes(),
             "preview": preview,
         }
         return view
 
-    @api.get("/api/documents/{doc_id}/setup")
-    def get_setup(doc_id: str):
-        doc = doc_or_404(doc_id)
-        session = SetupSession.load(app, doc)
+    @api.get("/api/projects/{pid}/setup")
+    def get_setup(pid: str):
+        project = project_or_404(pid)
+        session = SetupSession.load(app, project)
+        docs = app.project_documents(project)
         return {
             "session": session_view(session) if session else None,
-            "suggested_pages": format_pages(default_context_pages(doc.info.page_count)),
+            "suggested_pages": [list(r) for r in default_context_refs(docs)],
         }
 
-    @api.post("/api/documents/{doc_id}/setup")
-    def new_setup(doc_id: str, body: dict = Body(...)):
+    @api.post("/api/projects/{pid}/setup")
+    def new_setup(pid: str, body: dict = Body(...)):
         """Crea una nuova sessione (sostituisce quella esistente). Non chiama Gemini."""
-        doc = doc_or_404(doc_id)
-        if jobs.active_for(doc.id):
-            raise HTTPException(409, "C'è un'operazione in corso su questo documento.")
-        pages = parse_page_ranges(str(body.get("context_pages") or ""), doc.info.page_count) or []
+        project = project_or_404(pid)
+        no_job(project)
+        docs = app.project_documents(project)
+        refs = refs_from_body(body.get("context_pages"), docs)
         from_primer, from_spec = body.get("from_primer"), body.get("from_spec")
         if from_primer or from_spec:
             if not (from_primer and from_spec):
                 raise SetupError("Per partire da file esistenti scegli sia il primer sia la specifica.")
-            pages = pages or default_context_pages(doc.info.page_count)
+            refs = refs or default_context_refs(docs)
         name = slugify(body["name"]) if body.get("name") else None
         session = SetupSession.new(
-            app, doc, pages,
+            app, project, refs,
             goal=str(body.get("goal") or ""),
             reference_csv=Path(body["reference"]) if body.get("reference") else None,
             primer_name=name or from_primer, spec_name=name or from_spec,
@@ -308,20 +395,16 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             session.start_from_existing(from_primer, from_spec)
         return session_view(session)
 
-    @api.get("/api/documents/{doc_id}/setup/prompt")
-    def setup_prompt(doc_id: str, kind: str = "initial", feedback: str = ""):
-        session = session_or_404(doc_or_404(doc_id))
+    @api.get("/api/projects/{pid}/setup/prompt")
+    def setup_prompt(pid: str, kind: str = "initial", feedback: str = ""):
+        session = session_or_404(project_or_404(pid))
         if kind == "revise":
             prompt = session.build_revise_prompt(feedback or "(la tua correzione)")
         else:
             prompt = session.build_initial_prompt()
-        return {
-            "prompt": prompt,
-            "attachment": f"estratto PDF di {len(session.state.context_pages)} pagine "
-                          f"({format_pages(session.state.context_pages)})",
-        }
+        return {"prompt": prompt, "attachment": session.attachment_description()}
 
-    def _start_job(doc: Document, session: SetupSession, kind: str, label: str, step) -> dict[str, Any]:
+    def _setup_job(project: Project, session: SetupSession, kind: str, label: str, step) -> dict[str, Any]:
         def work(job):
             if step is not None:
                 job.message = label
@@ -330,62 +413,69 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             preview = session.run_preview(show_progress=False, control=job.control)
             return {"rows": preview.index.stats.get("righe_finali", 0), "round": session.state.current_round}
 
-        return jobs.submit(doc.id, kind, label, work).to_dict()
+        return jobs.submit(project.id, kind, label, work).to_dict()
 
-    @api.post("/api/documents/{doc_id}/setup/start")
-    def setup_start(doc_id: str):
-        doc = doc_or_404(doc_id)
-        session = session_or_404(doc)
+    @api.post("/api/projects/{pid}/setup/start")
+    def setup_start(pid: str):
+        project = project_or_404(pid)
+        session = session_or_404(project)
         if session.state.current_round:
             raise SetupError("La sessione è già avviata: usa le correzioni.")
-        return _start_job(doc, session, "setup", "Gemini sta analizzando le pagine scelte", session.start)
+        return _setup_job(project, session, "setup", "Gemini sta analizzando le pagine scelte", session.start)
 
-    @api.post("/api/documents/{doc_id}/setup/revise")
-    def setup_revise(doc_id: str, body: dict = Body(...)):
-        doc = doc_or_404(doc_id)
-        session = session_or_404(doc)
+    @api.post("/api/projects/{pid}/setup/revise")
+    def setup_revise(pid: str, body: dict = Body(...)):
+        project = project_or_404(pid)
+        session = session_or_404(project)
         feedback = str(body.get("feedback") or "").strip()
         if not feedback:
             raise SetupError("Scrivi cosa vuoi correggere.")
-        return _start_job(doc, session, "revise", "Gemini sta applicando la correzione",
+        return _setup_job(project, session, "revise", "Gemini sta applicando la correzione",
                           lambda: session.revise(feedback))
 
-    @api.post("/api/documents/{doc_id}/setup/preview")
-    def setup_preview(doc_id: str, body: dict = Body(default={})):
-        doc = doc_or_404(doc_id)
-        session = session_or_404(doc)
+    @api.post("/api/projects/{pid}/setup/preview")
+    def setup_preview(pid: str, body: dict = Body(default={})):
+        project = project_or_404(pid)
+        session = session_or_404(project)
         if body.get("pages"):
-            session.set_preview_pages(parse_page_ranges(str(body["pages"]), doc.info.page_count) or [])
-        return _start_job(doc, session, "preview", "Prova di estrazione", None)
+            session.set_preview_pages(refs_from_body(body["pages"], session.documents))
+        return _setup_job(project, session, "preview", "Prova di estrazione", None)
 
-    @api.post("/api/documents/{doc_id}/setup/context-pages")
-    def setup_context_pages(doc_id: str, body: dict = Body(...)):
-        doc = doc_or_404(doc_id)
-        session = session_or_404(doc)
-        session.set_context_pages(parse_page_ranges(str(body.get("pages") or ""), doc.info.page_count) or [])
+    @api.post("/api/projects/{pid}/setup/context-pages")
+    def setup_context_pages(pid: str, body: dict = Body(...)):
+        session = session_or_404(project_or_404(pid))
+        session.set_context_pages(refs_from_body(body.get("pages"), session.documents))
         return session_view(session)
 
-    @api.post("/api/documents/{doc_id}/setup/round/{number}")
-    def setup_go_to(doc_id: str, number: int):
-        session = session_or_404(doc_or_404(doc_id))
+    @api.post("/api/projects/{pid}/setup/round/{number}")
+    def setup_go_to(pid: str, number: int):
+        session = session_or_404(project_or_404(pid))
         session.go_to(number)
         return session_view(session)
 
-    @api.put("/api/documents/{doc_id}/setup/primer")
-    def setup_edit_primer(doc_id: str, body: dict = Body(...)):
-        session = session_or_404(doc_or_404(doc_id))
+    @api.put("/api/projects/{pid}/setup/primer")
+    def setup_edit_primer(pid: str, body: dict = Body(...)):
+        session = session_or_404(project_or_404(pid))
         session.manual_edit_done(primer_text=str(body.get("text") or ""))
         return session_view(session)
 
-    @api.put("/api/documents/{doc_id}/setup/spec")
-    def setup_edit_spec(doc_id: str, body: dict = Body(...)):
-        session = session_or_404(doc_or_404(doc_id))
+    @api.put("/api/projects/{pid}/setup/spec")
+    def setup_edit_spec(pid: str, body: dict = Body(...)):
+        session = session_or_404(project_or_404(pid))
         session.manual_edit_done(spec_text=str(body.get("text") or ""))
         return session_view(session)
 
-    @api.post("/api/documents/{doc_id}/setup/save")
-    def setup_save(doc_id: str, body: dict = Body(default={})):
-        session = session_or_404(doc_or_404(doc_id))
+    @api.put("/api/projects/{pid}/setup/notes")
+    def setup_edit_notes(pid: str, body: dict = Body(...)):
+        session = session_or_404(project_or_404(pid))
+        ids = {d.id for d in session.documents}
+        notes = {str(k): str(v).strip() for k, v in (body.get("notes") or {}).items() if k in ids and str(v).strip()}
+        session.manual_edit_done(document_notes=notes)
+        return session_view(session)
+
+    @api.post("/api/projects/{pid}/setup/save")
+    def setup_save(pid: str, body: dict = Body(default={})):
+        session = session_or_404(project_or_404(pid))
         if not session.state.current_round:
             raise SetupError("Non c'è ancora niente da salvare.")
         if body.get("name"):
@@ -400,95 +490,134 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         return {"primer": str(primer_path), "spec": str(spec_path), "reused_pages": reused,
                 "spec_name": session.state.spec_name}
 
-    @api.get("/api/documents/{doc_id}/setup/preview.csv")
-    def setup_preview_csv(doc_id: str):
-        session = session_or_404(doc_or_404(doc_id))
+    @api.get("/api/projects/{pid}/setup/preview.csv")
+    def setup_preview_csv(pid: str):
+        session = session_or_404(project_or_404(pid))
         if not session.preview_csv_path.exists():
             raise HTTPException(404, "Nessuna anteprima.")
-        return FileResponse(session.preview_csv_path, filename=f"{doc_id}_anteprima.csv", media_type="text/csv")
+        return FileResponse(session.preview_csv_path, filename=f"{pid}_anteprima.csv", media_type="text/csv")
 
     # ------------------------------------------------------------------ indicizzazione
-    def spec_for(doc: Document, given: str | None):
-        name = given or doc.info.spec
-        if not name:
-            raise SpecError("Questo documento non ha ancora una specifica: completa prima la configurazione.")
-        return app.load_spec(name)
-
-    @api.get("/api/documents/{doc_id}/index/plan")
-    def index_plan(doc_id: str, spec: str | None = None):
-        doc = doc_or_404(doc_id)
-        spec_obj = spec_for(doc, spec)
-        primer = app.primer_text(doc) if doc.info.primer else ""
-        extractor = Extractor(None, app.config)  # type: ignore[arg-type]
-        pages = selected_pages(doc, spec_obj)
-        manifest_path = doc.extraction_dir(spec_obj.name) / "manifest.json"
-        done, failed, changed = set(), {}, False
-        if manifest_path.exists():
-            m = Manifest.load_or_create(manifest_path, doc.info.page_count)
-            done = {int(k) for k, v in m.data["pages"].items() if v["status"] == DONE}
-            failed = m.failed_pages()
-            changed = bool(done) and m.meta.get("fingerprint") != extractor.fingerprint(spec_obj, primer)
-        todo = [p for p in pages if changed or p not in done]
+    def index_plan_for(project: Project) -> dict[str, Any]:
+        base = app.project_spec(project)
+        primer = app.project_primer(project)
+        extractor = Extractor(None, app.config)  # type: ignore[arg-type]  (solo impronte)
+        rows = []
+        for doc in app.project_documents(project):
+            spec = app.document_spec(project, doc, base)
+            pages = selected_pages(doc, spec)
+            manifest_path = doc.extraction_dir(spec.name) / "manifest.json"
+            done: set[int] = set()
+            failed = 0
+            changed = False
+            if manifest_path.exists():
+                m = Manifest.load_or_create(manifest_path, doc.info.page_count)
+                done = {int(k) for k, v in m.data["pages"].items() if v["status"] == DONE}
+                failed = len(m.failed_pages())
+                changed = bool(done) and m.meta.get("fingerprint") != extractor.fingerprint(spec, primer)
+            todo = [p for p in pages if changed or p not in done]
+            rows.append({
+                "id": doc.id, "title": doc.info.title, "pages": len(pages),
+                "pages_text": spec.pages or f"1-{doc.info.page_count}",
+                "done": len([p for p in pages if p in done]) if not changed else 0,
+                "todo": len(todo), "failed": failed, "spec_changed": changed,
+                "has_notes": bool(project.settings_for(doc.id).notes.strip()),
+            })
+        todo = sum(r["todo"] for r in rows)
         keys = max(1, len(load_api_keys()))
         rpm = app.config.gemini.max_requests_per_minute_total or app.config.gemini.requests_per_minute_per_key * keys
         return {
-            "spec": spec_obj.name,
-            "primer": doc.info.primer,
-            "pages": len(pages),
-            "pages_text": spec_obj.pages or f"1-{doc.info.page_count}",
-            "done": len([p for p in pages if p in done]),
-            "failed": len(failed),
-            "todo": len(todo),
-            "spec_changed": changed,
-            "estimate_minutes": max(1, round(len(todo) / rpm)) if todo else 0,
+            "spec": base.name, "primer": project.info.primer, "documents": rows,
+            "pages": sum(r["pages"] for r in rows), "done": sum(r["done"] for r in rows), "todo": todo,
+            "spec_changed": [r["id"] for r in rows if r["spec_changed"]],
+            "estimate_minutes": max(1, round(todo / rpm)) if todo else 0,
         }
 
-    @api.post("/api/documents/{doc_id}/index")
-    def start_index(doc_id: str, body: dict = Body(default={})):
-        doc = doc_or_404(doc_id)
-        spec = spec_for(doc, body.get("spec"))
-        primer = app.primer_text(doc) if doc.info.primer else ""
+    @api.get("/api/projects/{pid}/index/plan")
+    def index_plan(pid: str):
+        return index_plan_for(project_or_404(pid))
+
+    @api.post("/api/projects/{pid}/index")
+    def start_index(pid: str, body: dict = Body(default={})):
+        project = project_or_404(pid)
+        base = app.project_spec(project)
+        primer = app.project_primer(project)
         force = bool(body.get("force"))
         extractor = app.extractor()
-        extractor.open_manifest(doc, spec, primer, force=force)  # se le regole sono cambiate: 409
+        docs = app.project_documents(project)
+        specs = {d.id: app.document_spec(project, d, base) for d in docs}
+        # prima dell'avvio: se le regole di un PDF sono cambiate serve il consenso esplicito
+        # (force), che rifà da capo SOLO quei PDF
+        for doc in docs:
+            try:
+                extractor.open_manifest(doc, specs[doc.id], primer)
+            except SpecChangedError:
+                if not force:
+                    raise
+                extractor.open_manifest(doc, specs[doc.id], primer, force=True)
+        plan = index_plan_for(project)
+        total = plan["todo"]
 
         def work(job):
-            job.message = "Indicizzazione"
-            report = extractor.run(doc, spec, primer, show_progress=False, control=job.control)
-            result = app.export(doc, spec)
-            if not doc.info.spec:
-                app.assign_spec(doc, spec.name)
-            return {
-                "succeeded": report.succeeded,
-                "failed": {str(k): v for k, v in report.failed.items()},
-                "not_attempted": report.not_attempted,
-                "stopped_reason": report.stopped_reason,
-                "stats": result.index.stats,
-            }
+            done_before = 0
+            reports = {}
+            for doc in docs:
+                if job.control.cancel.is_set():
+                    break
+                spec = specs[doc.id]
 
-        return jobs.submit(doc.id, "index", f"Indicizzazione con la specifica '{spec.name}'", work).to_dict()
+                def progress(done: int, _total: int, _msg: str, offset=done_before, title=doc.info.title) -> None:
+                    job.done, job.total = offset + done, total
+                    job.message = f"Indicizzazione di {title}"
 
-    @api.get("/api/documents/{doc_id}/results")
-    def results(doc_id: str, spec: str | None = None):
-        doc = doc_or_404(doc_id)
-        spec_obj = spec_for(doc, spec)
-        if not (doc.extraction_dir(spec_obj.name) / "manifest.json").exists():
-            return {"available": False, "spec": spec_obj.name}
-        result = app.export(doc, spec_obj)
-        anomalies = [
-            {"level": a.level, "page": a.page, "row": a.csv_row, "column": a.column, "value": a.value,
-             "problem": a.problem}
-            # prima gli errori, poi gli avvisi, infine le note informative
-            for a in sorted(result.index.anomalies,
-                            key=lambda a: ({"errore": 0, "avviso": 1}.get(a.level, 2), a.page or 0, a.csv_row or 0))
-        ]
+                control = RunControl(progress=progress, cancel=job.control.cancel)
+                report = extractor.run(doc, spec, primer, show_progress=False, control=control)
+                reports[doc.id] = {
+                    "succeeded": report.succeeded,
+                    "failed": {str(k): v for k, v in report.failed.items()},
+                    "not_attempted": report.not_attempted,
+                    "stopped_reason": report.stopped_reason,
+                }
+                done_before += report.requested
+                if report.stopped_reason and not job.control.cancel.is_set():
+                    break      # quota esaurita o troppi errori: inutile continuare con gli altri PDF
+            result = app.export_project(project)
+            if not project.info.spec:
+                app.assign_project_rules(project, project.info.primer or "", base.name)
+            stopped = next((r["stopped_reason"] for r in reports.values() if r["stopped_reason"]), None)
+            return {"documents": reports, "stats": result.index.stats, "stopped_reason": stopped}
+
+        return jobs.submit(project.id, "index", f"Indicizzazione del progetto '{project.info.name}'", work).to_dict()
+
+    @api.get("/api/projects/{pid}/results")
+    def results(pid: str):
+        project = project_or_404(pid)
+        app.project_spec(project)
+        result = app.export_project(project)
+        if not result.documents:
+            return {"available": False}
+        level_order = {"errore": 0, "avviso": 1}
+        anomalies = []
+        for doc, r in result.documents:
+            for a in r.index.anomalies:
+                anomalies.append({"document": doc.id, "file": doc.info.source_filename, "level": a.level,
+                                  "page": a.page, "row": a.csv_row, "column": a.column, "value": a.value,
+                                  "problem": a.problem})
+        anomalies.sort(key=lambda a: (level_order.get(a["level"], 2), a["file"], a["page"] or 0, a["row"] or 0))
         levels = {lvl: sum(1 for a in anomalies if a["level"] == lvl) for lvl in ("errore", "avviso", "info")}
+        spec = app.project_spec(project)
         return {
             "available": True,
-            "spec": spec_obj.name,
             "stats": result.index.stats,
-            "stale": result.stale,
+            "documents": [{"id": d.id, "title": d.info.title, "file": d.info.source_filename,
+                           "rows": r.index.stats.get("righe_finali", 0), "errors": r.index.stats.get("errori", 0),
+                           "warnings": r.index.stats.get("avvisi", 0), "stale": r.stale,
+                           "csv": r.csv_path.name} for d, r in result.documents],
+            "not_indexed": [d.id for d in result.not_indexed],
+            "stale": [d.id for d in result.stale],
             "columns": result.index.columns,
+            "page_column": spec.output.page_column,
+            "source_column": spec.output.source_column,
             "rows": result.index.rows[:MAX_ROWS_IN_VIEW],
             "anomalies": anomalies[:MAX_ROWS_IN_VIEW],
             "anomalies_total": len(anomalies),
@@ -496,15 +625,30 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             "csv": result.csv_path.name,
         }
 
-    @api.get("/api/documents/{doc_id}/download/{kind}")
-    def download(doc_id: str, kind: str, spec: str | None = None):
-        doc = doc_or_404(doc_id)
-        spec_obj = spec_for(doc, spec)
-        csv_path = app.workspace.exports_dir / spec_obj.name / f"{doc.id}.csv"
-        path = csv_path if kind == "csv" else csv_path.with_name(f"{csv_path.stem}_anomalie.csv")
+    @api.get("/api/projects/{pid}/download/{kind}")
+    def download(pid: str, kind: str, doc: str | None = None):
+        project = project_or_404(pid)
+        out_dir = app.project_export_dir(project)
+        if kind == "csv":
+            path = out_dir / f"{project.id}.csv"
+        elif kind == "anomalie":
+            path = out_dir / f"{project.id}_anomalie.csv"
+        elif kind == "documento" and doc:
+            path = out_dir / "documenti" / f"{doc_of(project, doc).id}.csv"
+        else:
+            raise HTTPException(404, "File sconosciuto.")
         if not path.exists():
-            raise HTTPException(404, "File non ancora prodotto: esegui l'indicizzazione o rigenera i risultati.")
+            raise HTTPException(404, "File non ancora prodotto: esegui l'indicizzazione o apri i risultati.")
         return FileResponse(path, filename=path.name, media_type="text/csv")
+
+    @api.get("/api/projects/{pid}/search", response_class=HTMLResponse)
+    def search_page(pid: str):
+        from ragpdf.indexing.search_page import build_search_page
+
+        project = project_or_404(pid)
+        result = app.export_project(project)
+        path = build_search_page(app, project, result, pdf_link="/api/documents/{doc}/pdf#page={page}")
+        return HTMLResponse(path.read_text(encoding="utf-8"))
 
     # ------------------------------------------------------------------ pagina
     @api.get("/")
