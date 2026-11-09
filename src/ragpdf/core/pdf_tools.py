@@ -30,9 +30,15 @@ principale resta l'immagine della pagina.
 from __future__ import annotations
 
 import re
+import threading
 from pathlib import Path
 
 import pymupdf
+
+# PyMuPDF non supporta l'uso contemporaneo da più thread: tutte le operazioni sui PDF
+# passano da questo lucchetto (serve con l'interfaccia web, dove miniature e lavori in
+# background possono arrivare insieme).
+PDF_LOCK = threading.RLock()
 
 _CID = re.compile(r"\(cid:\d+\)")
 _SPACES = re.compile(r"[ \t]+")
@@ -43,7 +49,7 @@ def build_subset_pdf(source: Path, pages: list[int], target: Path) -> Path:
     if not pages:
         raise ValueError("Nessuna pagina selezionata per l'estratto.")
     target.parent.mkdir(parents=True, exist_ok=True)
-    with pymupdf.open(source) as src:
+    with PDF_LOCK, pymupdf.open(source) as src:
         out = pymupdf.open()
         try:
             for p in pages:
@@ -138,7 +144,7 @@ def _spans_to_text(spans: list[tuple[str, tuple[float, float, float, float]]]) -
 
 def page_text(pdf_path: Path, page_number: int, max_chars: int = 12000) -> str:
     """Testo nativo ripulito di una pagina (stringa vuota se la pagina è solo immagine)."""
-    with pymupdf.open(pdf_path) as doc:
+    with PDF_LOCK, pymupdf.open(pdf_path) as doc:
         raw = _spans_to_text(_page_spans(doc[page_number - 1]))
     text = clean_text(raw)
     if len(text) > max_chars:
@@ -148,7 +154,18 @@ def page_text(pdf_path: Path, page_number: int, max_chars: int = 12000) -> str:
 
 def has_text_layer(pdf_path: Path, sample: int = 5) -> bool:
     """True se il PDF contiene testo estraibile (controllando alcune pagine)."""
-    with pymupdf.open(pdf_path) as doc:
+    with PDF_LOCK, pymupdf.open(pdf_path) as doc:
         n = len(doc)
         step = max(1, n // sample)
         return any(doc[i].get_text("text").strip() for i in range(0, n, step))
+
+
+def render_thumbnail(pdf_path: Path, page_number: int, target: Path, dpi: int = 40) -> Path:
+    """Miniatura di una pagina (con cache su disco)."""
+    if not target.exists():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with PDF_LOCK, pymupdf.open(pdf_path) as doc:
+            if not 1 <= page_number <= len(doc):
+                raise ValueError(f"La pagina {page_number} non esiste.")
+            doc[page_number - 1].get_pixmap(dpi=dpi).save(target)
+    return target

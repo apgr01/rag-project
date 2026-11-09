@@ -25,6 +25,7 @@ import yaml
 from pydantic import BaseModel
 
 from ragpdf.core.fileio import atomic_write_text, utc_now
+from ragpdf.core.pdf_tools import PDF_LOCK
 from ragpdf.core.workspace import Workspace, slugify
 
 
@@ -157,7 +158,7 @@ class DocumentStore:
             raise DuplicateDocumentError(existing.info)
 
         try:
-            with pymupdf.open(pdf_path) as pdf:
+            with PDF_LOCK, pymupdf.open(pdf_path) as pdf:
                 page_count = len(pdf)
         except Exception as e:
             raise DocumentError(f"Impossibile aprire il PDF {pdf_path.name}: {e}") from e

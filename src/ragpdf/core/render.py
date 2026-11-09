@@ -13,6 +13,7 @@ import pymupdf
 from tqdm import tqdm
 
 from ragpdf.core.fileio import read_json, write_json
+from ragpdf.core.pdf_tools import PDF_LOCK
 
 _INFO_FILE = "render.json"
 
@@ -44,7 +45,7 @@ def render_pages(
     if previous_dpi is not None and previous_dpi != dpi:
         force = True  # risoluzione cambiata: le vecchie immagini non vanno più bene
 
-    with pymupdf.open(pdf_path) as pdf:
+    with PDF_LOCK, pymupdf.open(pdf_path) as pdf:
         wanted = pages or list(range(1, len(pdf) + 1))
         result = {n: page_image_path(pages_dir, n) for n in wanted}
         missing = [n for n, p in result.items() if force or not p.exists()]
