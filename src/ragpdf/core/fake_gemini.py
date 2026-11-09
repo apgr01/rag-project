@@ -34,15 +34,34 @@ class FakeRequest:
     pdf_pages: int | None = None  # pagine del PDF allegato (letto al momento della richiesta)
 
 
+_SIMULATED_SPEC = """row: Una riga per ogni codice presente nella pagina (simulato).
+columns:
+  - name: CODICE
+    description: Codice articolo.
+  - name: DESCRIZIONE
+    description: Descrizione breve.
+"""
+
+
 def _placeholder_from_schema(schema: dict[str, Any], label: str = "valore") -> Any:
-    """Costruisce un oggetto d'esempio che rispetta uno JSON Schema semplice."""
+    """Costruisce un oggetto d'esempio che rispetta uno JSON Schema semplice.
+
+    I campi che finiscono in ``_yaml`` / ``_markdown`` ricevono contenuti minimi ma
+    validi, così anche la sessione guidata funziona in modalità simulata.
+    """
     t = schema.get("type")
+    if t == "string" and label.endswith("_yaml"):
+        return _SIMULATED_SPEC
+    if t == "string" and label.endswith("_markdown"):
+        return "# Primer [simulato]\n\nContenuto generato senza chiamare Gemini.\n"
     if t == "object":
         return {
             name: _placeholder_from_schema(sub, name)
             for name, sub in schema.get("properties", {}).items()
         }
     if t == "array":
+        if schema.get("items", {}).get("type") == "integer":
+            return []
         return [_placeholder_from_schema(schema.get("items", {}), label)]
     if t == "boolean":
         return True

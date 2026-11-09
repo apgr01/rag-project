@@ -85,3 +85,17 @@ def parse_page_ranges(text: str | None, total_pages: int) -> list[int] | None:
             raise ValueError(f"Intervallo '{part}' fuori dal documento (pagine 1-{total_pages}).")
         selected.update(range(start, end + 1))
     return sorted(selected)
+
+
+def format_pages(pages: list[int]) -> str:
+    """Forma compatta di un elenco di pagine: ``[1, 2, 3, 5, 9, 10]`` -> ``"1-3, 5, 9-10"``."""
+    result: list[str] = []
+    ordered = sorted(set(pages))
+    i = 0
+    while i < len(ordered):
+        j = i
+        while j + 1 < len(ordered) and ordered[j + 1] == ordered[j] + 1:
+            j += 1
+        result.append(str(ordered[i]) if i == j else f"{ordered[i]}-{ordered[j]}")
+        i = j + 1
+    return ", ".join(result)

@@ -106,3 +106,83 @@ def table(headers: list[str], rows: list[list[object]]) -> None:
         print("  " + "  ".join(c.ljust(w) for c, w in zip(r, widths, strict=True)))
         if n == 0:
             print("  " + "  ".join("-" * w for w in widths))
+
+
+def compact_table(headers: list[str], rows: list[list[object]], max_cell: int = 22) -> None:
+    """Tabella con celle troncate, adattata alla larghezza del terminale."""
+    import shutil as _shutil
+
+    width = _shutil.get_terminal_size((120, 20)).columns - 4
+    cells = [[str(c) for c in headers]] + [[str(c) for c in r] for r in rows]
+    n = len(headers)
+    limit = max_cell
+    while limit > 6:
+        widths = [min(limit, max(len(r[i]) for r in cells)) for i in range(n)]
+        if sum(widths) + 2 * (n - 1) <= width:
+            break
+        limit -= 2
+
+    def cut(text: str, w: int) -> str:
+        return text if len(text) <= w else text[: max(1, w - 1)] + "~"
+
+    for k, r in enumerate(cells):
+        print("  " + "  ".join(cut(c, w).ljust(w) for c, w in zip(r, widths, strict=True)))
+        if k == 0:
+            print("  " + "  ".join("-" * w for w in widths))
+
+
+def open_file(path) -> bool:
+    """Apre un file con il programma predefinito (es. Excel per i CSV). Non blocca."""
+    import os as _os
+    import subprocess as _sp
+
+    try:
+        if sys.platform.startswith("win"):
+            _os.startfile(str(path))  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            _sp.Popen(["open", str(path)])
+        else:
+            _sp.Popen(["xdg-open", str(path)], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+        return True
+    except Exception:
+        return False
+
+
+def edit_file(path) -> bool:
+    """Apre un file di testo in un editor e attende la chiusura.
+
+    Windows: Blocco note. macOS: TextEdit. Altri: $EDITOR, poi nano/vi.
+    Restituisce False se nessun editor è disponibile.
+    """
+    import os as _os
+    import shutil as _shutil
+    import subprocess as _sp
+
+    if sys.platform.startswith("win"):
+        command = ["notepad", str(path)]
+    elif sys.platform == "darwin":
+        command = ["open", "-W", "-t", str(path)]
+    else:
+        editor = _os.environ.get("EDITOR") or _shutil.which("nano") or _shutil.which("vi")
+        if not editor:
+            return False
+        command = [*editor.split(), str(path)]
+    try:
+        _sp.run(command, check=False)
+        return True
+    except OSError:
+        return False
+
+
+def ask_multiline(intro: str) -> str:
+    """Testo su più righe: termina con una riga vuota."""
+    if not interactive():
+        return ""
+    print(intro + " (riga vuota per terminare)")
+    lines = []
+    while True:
+        line = input("> ")
+        if not line.strip():
+            break
+        lines.append(line)
+    return "\n".join(lines)

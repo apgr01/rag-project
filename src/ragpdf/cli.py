@@ -1,8 +1,13 @@
 """Interfaccia a riga di comando: ``ragpdf <comando>``.
 
-Flusso tipico per indicizzare un catalogo::
+Flusso consigliato per indicizzare un catalogo::
 
     ragpdf doctor                              # verifica che sia tutto pronto
+    ragpdf setup "Catalogo.pdf"                # configurazione guidata con anteprima
+    ragpdf index catalogo                      # indicizzazione completa -> CSV
+
+Flusso manuale, passo per passo::
+
     ragpdf add "Catalogo.pdf"                  # aggiunge il documento (e chiede del primer)
     ragpdf spec new ricambi                    # crea la specifica da completare
     ragpdf index catalogo --spec ricambi       # estrae le righe ed esporta il CSV
@@ -30,6 +35,7 @@ from ragpdf.core.paths import ENV_FILE, EXAMPLES_DIR, PROJECT_ROOT
 from ragpdf.indexing.extractor import SpecChangedError, selected_pages
 from ragpdf.indexing.prompt import PromptBuilder
 from ragpdf.indexing.spec import SpecError
+from ragpdf.setup_session import SetupError
 
 SPEC_TEMPLATES_DIR = EXAMPLES_DIR / "specs"
 
@@ -67,7 +73,8 @@ def _ensure_primer(app: App, doc: Document, assume_yes: bool) -> str | None:
     ui.info("Senza primer Gemini interpreta ogni pagina senza conoscere il resto del documento:")
     ui.info("i risultati sono di solito meno precisi.")
 
-    options = [("generate", "Genera ora una bozza con Gemini (consigliato)")]
+    ui.hint(f"Consigliato: interrompi e usa la configurazione guidata  ragpdf setup {doc.id}")
+    options = [("generate", "Genera ora una bozza con Gemini")]
     if app.workspace.list_primers():
         options.append(("existing", "Usa un primer già presente"))
     options += [("none", "Prosegui senza primer"), ("cancel", "Annulla")]
@@ -236,7 +243,7 @@ def cmd_add(app: App, args: argparse.Namespace) -> int:
         elif ui.interactive() and not args.no_primer:
             _ensure_primer(app, doc, assume_yes=False)
         else:
-            ui.hint(f"Prossimo passo: ragpdf primer generate {doc.id}")
+            ui.hint(f"Prossimo passo consigliato: ragpdf setup {doc.id}   (configurazione guidata)")
     return 0 if added or not args.pdf else 1
 
 
@@ -601,6 +608,12 @@ def cmd_rag_ask(app: App, args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_setup(app: App, args: argparse.Namespace) -> int:
+    from ragpdf.cli_setup import cmd_setup
+
+    return cmd_setup(app, args)
+
+
 # =====================================================================================
 # Parser
 # =====================================================================================
@@ -624,6 +637,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--primer", help="primer da associare (nome di un primer esistente)")
     p.add_argument("--no-primer", action="store_true", help="non chiedere nulla sul primer ora")
     p.set_defaults(func=cmd_add)
+
+    p = sub.add_parser(
+        "setup",
+        help="CONFIGURAZIONE GUIDATA: primer e specifica costruiti insieme a Gemini, con anteprima",
+        description="Gemini guarda alcune pagine scelte da te, propone come indicizzare il documento e "
+                    "prova l'estrazione; tu correggi a parole finché il risultato non ti convince.",
+    )
+    p.add_argument("doc", help="documento del workspace, oppure percorso di un PDF da aggiungere")
+    p.add_argument("--pages", help="pagine da mostrare a Gemini, es. '1,4,10-14,102,105'")
+    p.add_argument("--goal", help="cosa vuoi ottenere, a parole (altrimenti viene chiesto)")
+    p.add_argument("--reference", help="CSV di riferimento (modello di formato e confronto)")
+    p.add_argument("--name", help="nome di primer e specifica (default: id del documento)")
+    p.add_argument("--primer", help="parti da questo primer esistente (insieme a --spec)")
+    p.add_argument("--spec", help="parti da questa specifica esistente (insieme a --primer)")
+    p.add_argument("--new", action="store_true", help="ricomincia da capo invece di riprendere la sessione")
+    p.set_defaults(func=_cmd_setup)
 
     p = sub.add_parser("list", help="elenca i documenti e lo stato delle elaborazioni")
     p.set_defaults(func=cmd_list)
@@ -732,7 +761,7 @@ def main(argv: list[str] | None = None) -> int:
         app = App(load_config(args.config))
         return args.func(app, args) or 0
     except (ConfigError, DocumentError, SpecError, GeminiError, PrimerMissingError, FileNotFoundError, ValueError,
-            ImportError) as e:
+            ImportError, SetupError) as e:
         ui.error(str(e))
         return 1
     except KeyboardInterrupt:
