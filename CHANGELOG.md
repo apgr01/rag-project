@@ -17,6 +17,9 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
 - Specifica predefinita per documento: `index`/`export --all` con cataloghi diversi,
   unione in `TUTTI.csv` se le colonne coincidono.
 - Avviso per PDF scansionati (senza testo).
+- Riepilogo del consumo (richieste e token) a fine indicizzazione e sessione guidata.
+- Opzione `gemini.thinking_level` per regolare il "ragionamento" del modello.
+- `ragpdf list` mostra anche la specifica predefinita di ogni documento.
 - **Modalità indicizzazione**: da un PDF a un CSV secondo una *specifica* YAML scritta
   dall'utente (cosa rappresenta una riga, colonne, istruzioni libere, tabelle di
   conversione, CSV d'esempio). Estrazione strutturata pagina per pagina con JSON Schema,
@@ -33,14 +36,17 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   (id leggibile e impronta SHA-256 per riconoscere i duplicati).
 - Client Gemini con pool di chiavi, ritmo per chiave condiviso tra i thread, gestione
   degli errori per codice HTTP, arresto ordinato a quote esaurite.
-- Client Gemini simulato (`RAGPDF_FAKE_GEMINI=1`) e 96 test automatici senza rete.
+- Client Gemini simulato (`RAGPDF_FAKE_GEMINI=1`) e 105 test automatici senza rete.
 - Specifiche d'esempio (`examples/specs/`) e guida passo passo
   (`docs/GUIDA_INDICIZZAZIONE.md`), documento di architettura (`docs/ARCHITETTURA.md`).
 - `pyproject.toml`, roadmap, changelog.
 
 ### Modificato
 - Le pagine dell'anteprima vengono riusate nell'indicizzazione se le regole non cambiano.
-- Le colonne di contesto non sono più ripetute in ogni riga della risposta di Gemini.
+- Le colonne di contesto non sono più ripetute in ogni riga della risposta di Gemini; prompt
+  di estrazione più compatto e con una regola esplicita sulla completezza delle righe.
+- Configurando un catalogo a partire da primer e specifica esistenti si aggiornano gli stessi
+  file invece di crearne copie; la conferma di sovrascrittura compare solo se cambiano.
 - Risposte troncate o bloccate da Gemini: errore immediato e spiegato, senza tentativi.
 - Codice raccolto nel pacchetto `src/ragpdf` (prima: pacchetti `common`, `ingestion`, `rag`).
 - Modalità RAG divisa in fasi rilanciabili (`rag describe`, `rag build`, `rag ask`), con

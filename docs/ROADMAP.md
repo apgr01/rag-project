@@ -53,7 +53,9 @@ Decisi insieme e da rispettare in tutti gli step:
 - [x] **Robustezza**: risposte troncate/bloccate riconosciute senza tentativi inutili; righe
   più corte (colonne di contesto non ripetute); riuso delle pagine dell'anteprima; specifica
   predefinita per documento.
-- [x] **Test**: 96 test senza rete con Gemini simulato.
+- [x] **Consumo e costi**: riepilogo di richieste e token; opzione `thinking_level`.
+- [x] **Test**: 105 test senza rete con Gemini simulato, più prove della sessione guidata in
+  un terminale reale (pseudo-tty) su un'installazione pulita.
 - [ ] **Step 3 — Qualità del retrieval (RAG)**: embedding multilingue locali configurabili,
   soglia di rilevanza.
 
