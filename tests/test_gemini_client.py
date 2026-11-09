@@ -168,3 +168,32 @@ def test_small_pdf_is_sent_inline(tmp_path):
     part = seen["contents"][0]
     assert part.inline_data.mime_type == "application/pdf" and seen["model"] == "vision-m"
     assert client.generate_text("ciao") is not None and seen["model"] == "text-m"
+
+
+@pytest.mark.parametrize(
+    "finish, block, expected",
+    [("STOP", None, None), ("MAX_TOKENS", None, "lunghezza massima"), ("SAFETY", None, "sicurezza"),
+     ("RECITATION", None, "recitation"), (None, "PROHIBITED_CONTENT", "bloccata")],
+)
+def test_incomplete_responses_are_not_retried(finish, block, expected):
+    from types import SimpleNamespace as NS
+
+    from ragpdf.core.gemini import IncompleteResponseError
+
+    calls = []
+
+    class Models:
+        def generate_content(self, model, contents, config):
+            calls.append(1)
+            candidates = [NS(finish_reason=NS(name=finish))] if finish else []
+            feedback = NS(block_reason=NS(name=block)) if block else None
+            return NS(text='{"a": 1}', candidates=candidates, prompt_feedback=feedback)
+
+    client = GeminiClient(["k1", "k2"], GeminiSettings(), client_factory=lambda k: NS(models=Models()),
+                          log=lambda m: None)
+    if expected is None:
+        assert client.generate_json("p", {"type": "object"}) == {"a": 1}
+    else:
+        with pytest.raises(IncompleteResponseError, match=expected):
+            client.generate_json("p", {"type": "object"})
+    assert len(calls) == 1

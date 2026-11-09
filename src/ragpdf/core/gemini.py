@@ -59,6 +59,40 @@ class GeminiNotConfiguredError(GeminiError):
     """Nessuna chiave API disponibile."""
 
 
+class IncompleteResponseError(GeminiError):
+    """Il modello ha interrotto la risposta (troppo lunga, bloccata, ...): ritentare è inutile."""
+
+
+_FINISH_EXPLANATIONS = {
+    "MAX_TOKENS": (
+        "la risposta ha superato la lunghezza massima (pagina con moltissime righe). "
+        "Riduci le colonne o dividi il lavoro, ad es. con istruzioni più selettive"
+    ),
+    "SAFETY": "risposta bloccata dai filtri di sicurezza di Gemini",
+    "PROHIBITED_CONTENT": "risposta bloccata dai filtri di sicurezza di Gemini",
+    "BLOCKLIST": "risposta bloccata dai filtri di Gemini",
+    "SPII": "risposta bloccata: possibili dati personali sensibili",
+    "RECITATION": "risposta bloccata perché riproduce testo protetto (recitation)",
+}
+
+
+def check_finish(response: Any) -> None:
+    """Solleva :class:`IncompleteResponseError` se la risposta è stata interrotta o bloccata."""
+    feedback = getattr(response, "prompt_feedback", None)
+    block = getattr(feedback, "block_reason", None) if feedback is not None else None
+    if block:
+        name = str(getattr(block, "name", block))
+        raise IncompleteResponseError(f"richiesta bloccata da Gemini ({name})")
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return
+    reason = getattr(candidates[0], "finish_reason", None)
+    name = str(getattr(reason, "name", reason or "")).upper()
+    for key, explanation in _FINISH_EXPLANATIONS.items():
+        if key in name:
+            raise IncompleteResponseError(explanation)
+
+
 class LLMClient(Protocol):
     """Interfaccia usata dal resto del programma.
 
@@ -340,6 +374,7 @@ class GeminiClient:
             parts.append(prompt)
             try:
                 response = client.models.generate_content(model=model, contents=parts, config=config)
+                check_finish(response)
                 return parse(response)
             finally:
                 if uploaded is not None:

@@ -60,3 +60,10 @@ def test_example_csv_in_prompt(tmp_path):
     spec = load_spec(write(tmp_path, "row: x\ncolumns:\n  - name: A\nexamples:\n  csv: es.csv\n  max_rows: 2\n"))
     assert spec.example_text() == "A,B\n1,2\n3,4"
     assert "A,B\n1,2\n3,4\n```" in PromptBuilder(spec, "", 1).page_prompt(1)
+
+
+def test_context_columns_are_not_repeated_in_rows():
+    spec = load_spec(EXAMPLES / "finimpianti-fin-oem.yaml")
+    prompt = PromptBuilder(spec, "", 10).page_prompt(1)
+    assert "lascialo \"\" se è uguale a page_context" in prompt
+    assert "page_context" in build_page_schema(spec)["properties"]
