@@ -88,12 +88,15 @@ def assemble(
     stats = {"righe_estratte": 0, "valori_ereditati": 0, "duplicati_rimossi": 0}
 
     # --- pagine non elaborate ------------------------------------------------------
+    # Le pagine fallite sono errori; quelle mai elaborate (es. dopo una prova con --pages)
+    # sono solo un'informazione, per non allarmare inutilmente.
     missing = [p for p in expected_pages if p not in page_results]
     for p in missing:
         reason = failed_pages.get(p)
-        anomalies.append(
-            Anomaly(ERROR, f"pagina non elaborata ({reason})" if reason else "pagina non ancora elaborata", page=p)
-        )
+        if reason:
+            anomalies.append(Anomaly(ERROR, f"pagina non elaborata ({reason})", page=p))
+        else:
+            anomalies.append(Anomaly(INFO, "pagina non ancora elaborata", page=p))
 
     # --- 1-3: righe con contesto, normalizzate, con colonne aggiuntive -------------
     rows: list[tuple[int, dict[str, str]]] = []
@@ -163,6 +166,7 @@ def assemble(
         pagine_previste=len(expected_pages),
         pagine_elaborate=len([p for p in expected_pages if p in page_results]),
         pagine_con_righe=len(pages_with_rows),
+        pagine_da_elaborare=len([p for p in missing if p not in failed_pages]),
         righe_finali=len(rows),
         errori=sum(a.level == ERROR for a in anomalies),
         avvisi=sum(a.level == WARNING for a in anomalies),

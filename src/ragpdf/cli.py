@@ -156,10 +156,13 @@ def _print_export(app: App, result, doc_label: str) -> None:
         ui.warn("La specifica, il primer o il modello sono cambiati dopo l'estrazione: il CSV usa i "
                 "risultati ottenuti con le regole precedenti.")
         ui.hint(f"Per applicare le nuove regole rilancia: ragpdf index {doc_label} --spec <nome>")
-    if result.anomalies_path:
-        ui.warn(
-            f"{s.get('errori', 0)} errori e {s.get('avvisi', 0)} avvisi da controllare: {result.anomalies_path}"
-        )
+    if s.get("pagine_da_elaborare"):
+        ui.info(f"  pagine non ancora elaborate: {s['pagine_da_elaborare']} "
+                f"(per completare: ragpdf index {doc_label} senza --pages)")
+    if s.get("errori") or s.get("avvisi"):
+        ui.warn(f"{s.get('errori', 0)} errori e {s.get('avvisi', 0)} avvisi da controllare: {result.anomalies_path}")
+    elif result.anomalies_path:
+        ui.info(f"  note e informazioni: {result.anomalies_path}")
 
 
 # =====================================================================================

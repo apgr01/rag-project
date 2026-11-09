@@ -53,7 +53,7 @@ def test_anomalies_dedupe_sort_and_missing_pages():
         {"MOTORE": "M", "CILINDRI": "2", "CODICE": "XYZ"},   # duplicato
         {"MOTORE": "", "CILINDRI": "", "CODICE": ""},        # vuota: scartata
     ]
-    idx = assemble(spec, {1: page(rows, notes="testo poco leggibile")}, "c.pdf", [1, 2], {2: "timeout"})
+    idx = assemble(spec, {1: page(rows, notes="testo poco leggibile")}, "c.pdf", [1, 2, 3], {2: "timeout"})
     assert [r["CODICE"] for r in idx.rows] == ["FIN9", "XYZ"]
     assert idx.stats["duplicati_rimossi"] == 1
     found = {(a.level, a.page, a.csv_row, a.column, a.problem) for a in idx.anomalies}
@@ -61,6 +61,8 @@ def test_anomalies_dedupe_sort_and_missing_pages():
     assert (WARNING, 1, 3, "CODICE", "non rispetta il formato FIN.*") in found
     assert (ERROR, 2, None, None, "pagina non elaborata (timeout)") in found
     assert (INFO, 1, None, None, "nota del modello: testo poco leggibile") in found
+    assert (INFO, 3, None, None, "pagina non ancora elaborata") in found
+    assert idx.stats["pagine_da_elaborare"] == 1 and idx.stats["errori"] == 1
 
 
 def test_default_value():

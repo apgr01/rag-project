@@ -218,9 +218,9 @@ Il report anomalie (`<documento>_anomalie.csv`) elenca:
 
 | livello | significato |
 |---|---|
-| `errore` | pagina non elaborata, oppure campo obbligatorio vuoto |
+| `errore` | pagina fallita (dopo i tentativi), oppure campo obbligatorio vuoto |
 | `avviso` | valore che non rispetta il formato, il tipo o i valori ammessi |
-| `info` | note di Gemini su dubbi di lettura in quella pagina |
+| `info` | note di Gemini su dubbi di lettura; pagine non ancora elaborate (es. dopo una prova con `--pages`) |
 
 Le righe con anomalie restano comunque nel CSV: decidi tu cosa farne.
 
