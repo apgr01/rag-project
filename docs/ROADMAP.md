@@ -40,7 +40,7 @@ Decisi insieme e da rispettare in tutti gli step:
 - [x] **Modalità indicizzazione** (anticipata per un bisogno concreto): specifica YAML,
   estrazione strutturata pagina per pagina, contesto ereditato, controlli e report anomalie,
   export CSV e unione di più documenti.
-- [x] **Bozze automatiche**: primer da PDF intero; specifica da descrizione a parole + CSV
+- [x] **Bozze automatiche**: primer da PDF intero o da pagine scelte; specifica da descrizione a parole + CSV
   d'esempio + pagine campione.
 - [x] **Esperienza d'uso**: CLI guidata (`doctor`, `add`, `list`, domande quando manca
   qualcosa, stima dei tempi, ripresa), guida passo passo.
