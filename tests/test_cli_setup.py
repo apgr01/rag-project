@@ -121,3 +121,32 @@ def test_simulated_mode_works_end_to_end(monkeypatch, tmp_path, pdf_factory):
     answers = iter(["", "", "", "/ok", "n"])
     monkeypatch.setattr(builtins, "input", lambda prompt="": next(answers))
     assert main(["--config", str(cfg), "setup", str(pdf_factory("Sim.pdf", pages=3))]) == 0
+
+
+def test_resume_shows_saved_preview_without_new_requests(terminal, pdf_factory, capsys):
+    run, fake, tmp_path = terminal
+    pdf = pdf_factory("Salvata.pdf", pages=6)
+    fake.setup_answers = [answer(pages=(2,))]
+    run(["", "", "", "/esci"], str(pdf))
+    capsys.readouterr()
+    from ragpdf.app import App
+
+    client = App.client(None)
+    before = len(client.requests)
+    assert run(["s", "/esci"], str(pdf)) == 0
+    assert len(client.requests) == before
+    assert "Ultima prova salvata" in capsys.readouterr().out
+
+
+def test_save_with_new_name_never_overwrites_silently(terminal, pdf_factory):
+    run, fake, tmp_path = terminal
+    specs = tmp_path / "data" / "specs"
+    specs.mkdir(parents=True)
+    (specs / "due.yaml").write_text("vecchia", encoding="utf-8")
+    (specs / "due-2.yaml").write_text("vecchia anche questa", encoding="utf-8")
+    fake.setup_answers = [answer(pages=(2,))]
+    # no -> nome proposto "due-2" (esiste) -> no -> "Due Finale" -> salvato come due-finale
+    assert run(["", "", "", "/ok", "n", "", "n", "Due Finale", "n"], str(pdf_factory("Due.pdf", pages=4))) == 0
+    assert (specs / "due.yaml").read_text(encoding="utf-8") == "vecchia"
+    assert (specs / "due-2.yaml").read_text(encoding="utf-8") == "vecchia anche questa"
+    assert (specs / "due-finale.yaml").exists()

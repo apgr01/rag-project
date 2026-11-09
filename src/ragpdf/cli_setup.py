@@ -156,8 +156,29 @@ def _show_preview(session: SetupSession, preview: Preview) -> None:
 
 def _preview(session: SetupSession) -> None:
     ui.info(f"\nProvo l'estrazione sulle pagine {format_pages(session.state.preview_pages)}...")
-    preview = session.run_preview(show_progress=False)
+    preview = session.run_preview(show_progress=True)
     _show_preview(session, preview)
+
+
+def _show_saved_preview(session: SetupSession) -> bool:
+    """Mostra l'ultima anteprima salvata (senza nuove richieste). False se non c'è."""
+    info = session.round_notes().get("preview")
+    if not info or not session.preview_csv_path.exists():
+        return False
+    ui.title(f"Ultima prova salvata (pagine {format_pages(info['pages'])})")
+    ui.info("Righe per pagina: " + ", ".join(f"p.{p}: {n}" for p, n in info["rows_per_page"].items()))
+    from ragpdf.indexing.spec import read_csv_rows
+
+    columns, rows = read_csv_rows(session.preview_csv_path)
+    hidden = {session.load_spec().output.source_column}
+    cols = [c for c in columns if c not in hidden]
+    if rows:
+        ui.compact_table(cols, [[r.get(c, "") for c in cols] for r in rows[:15]])
+    if info.get("comparison"):
+        c = info["comparison"]
+        ui.info(f"Confronto con il riferimento: copertura {c['recall']:.0%}, precisione {c['precision']:.0%}")
+    ui.info(f"CSV di prova: {session.preview_csv_path}   (/anteprima per rifarla)")
+    return True
 
 
 # --------------------------------------------------------------------------- avvio
@@ -247,13 +268,17 @@ def _resume(app: App, doc: Document, args: argparse.Namespace) -> SetupSession |
 def _save(app: App, session: SetupSession) -> bool:
     primer_target, spec_target = session.targets()
     existing = [p for p in (primer_target, spec_target) if p.exists()]
-    if existing and not session.state.saved_at:
+    while existing and not session.state.saved_at:
         names = ", ".join(p.name for p in existing)
-        if not ui.ask_yes_no(f"Esistono già {names} nel workspace. Sovrascriverli?", default=False):
-            new_name = ui.ask_text("Nome da usare per primer e specifica", f"{session.state.spec_name}-2")
-            session.state.primer_name = session.state.spec_name = new_name
-            session.save_state()
-            primer_target, spec_target = session.targets()
+        if ui.ask_yes_no(f"Esistono già {names} nel workspace. Sovrascriverli?", default=False):
+            break
+        new_name = ui.ask_text("Nome da usare per primer e specifica", f"{session.state.spec_name}-2")
+        from ragpdf.core.workspace import slugify
+
+        session.state.primer_name = session.state.spec_name = slugify(new_name)
+        session.save_state()
+        primer_target, spec_target = session.targets()
+        existing = [p for p in (primer_target, spec_target) if p.exists()]
     primer_path, spec_path = session.save()
     ui.ok(f"Primer salvato: {primer_path}")
     ui.ok(f"Specifica salvata: {spec_path} (predefinita per '{session.doc.id}')")
@@ -277,9 +302,10 @@ def _offer_indexing(app: App, session: SetupSession) -> int:
     return cli.cmd_index(app, ns)
 
 
-def _loop(app: App, session: SetupSession) -> int:
+def _loop(app: App, session: SetupSession, resumed: bool = False) -> int:
     _show_round(session)
-    _preview(session)
+    if not (resumed and _show_saved_preview(session)):
+        _preview(session)
     ui.info("\nScrivi a parole cosa correggere (es. 'la colonna MOTORE deve contenere solo il modello'),")
     ui.info("oppure /ok per salvare, /aiuto per gli altri comandi.")
 
@@ -413,11 +439,12 @@ def cmd_setup(app: App, args: argparse.Namespace) -> int:
         ui.error(str(e))
         return 1
 
-    session = _resume(app, doc, args) or _start_new(app, doc, args)
+    resumed = _resume(app, doc, args)
+    session = resumed or _start_new(app, doc, args)
     if session is None:
         return 1
     try:
-        return _loop(app, session)
+        return _loop(app, session, resumed=resumed is not None)
     except KeyboardInterrupt:
         ui.warn(f"Interrotto. La sessione è conservata: riprendila con  ragpdf setup {doc.id}")
         return 130

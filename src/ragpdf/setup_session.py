@@ -35,6 +35,7 @@ from ragpdf.core.page_runner import RunReport
 from ragpdf.core.paths import EXAMPLES_DIR
 from ragpdf.core.pdf_tools import build_subset_pdf, page_mapping_text
 from ragpdf.core.prompts import load_prompt, render_prompt
+from ragpdf.core.render import parse_page_ranges
 from ragpdf.indexing.assemble import AssembledIndex, assemble
 from ragpdf.indexing.compare import Comparison, compare_rows, filter_reference
 from ragpdf.indexing.export import write_index
@@ -257,7 +258,7 @@ class SetupSession:
         folder = self.round_dir(n)
         folder.mkdir(parents=True, exist_ok=True)
         atomic_write_text(folder / "primer.md", clean_markdown(response["primer_markdown"]))
-        self._write_spec(folder / "spec.yaml", response["spec_yaml"])
+        self._write_spec(folder / "spec.yaml", response["spec_yaml"], response.get("_base_dir"))
         write_json(
             folder / "round.json",
             {
@@ -266,7 +267,9 @@ class SetupSession:
                 "feedback": feedback,
                 "summary": str(response.get("summary", "")).strip(),
                 "questions": [str(q) for q in response.get("questions") or []],
-                "suggested_preview_pages": self._valid_preview_pages(response.get("preview_pages")),
+                "suggested_preview_pages": self._valid_preview_pages(
+                    response.get("preview_pages"), from_gemini=origin in ("iniziale", "revisione")
+                ),
                 "created_at": utc_now(),
             },
         )
@@ -281,8 +284,13 @@ class SetupSession:
         self.save_state()
         return n
 
-    def _write_spec(self, path: Path, spec_yaml: str) -> None:
-        """Scrive la specifica forzando nome ed esempio, poi la valida (SpecError se non valida)."""
+    def _write_spec(self, path: Path, spec_yaml: str, base_dir: Path | None = None) -> None:
+        """Scrive la specifica forzando nome ed esempio, poi la valida (SpecError se non valida).
+
+        ``base_dir``: cartella da cui proviene la specifica (per i percorsi relativi del CSV
+        d'esempio). Un CSV d'esempio che non esiste viene tolto: Gemini a volte copia dal
+        modello un nome di file inventato.
+        """
         text = spec_yaml.strip()
         if text.startswith("```"):
             text = "\n".join(line for line in text.splitlines() if not line.strip().startswith("```"))
@@ -295,11 +303,33 @@ class SetupSession:
             atomic_write_text(path, text + "\n")
             raise SpecError("La specifica non è un insieme di campi YAML.")
         data["name"] = self.state.spec_name
+
+        examples = data.get("examples") if isinstance(data.get("examples"), dict) else {}
         if self.state.reference_csv:
-            data["examples"] = {**(data.get("examples") or {}), "csv": self.state.reference_csv}
+            examples["csv"] = self.state.reference_csv
+        elif examples.get("csv"):
+            examples["csv"] = self._resolve_example(str(examples["csv"]), base_dir)
+        if examples:
+            data["examples"] = examples
+
         body = yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=100)
         atomic_write_text(path, body)
-        load_spec(path)
+        spec = load_spec(path)
+        if spec.pages:
+            try:
+                parse_page_ranges(spec.pages, self.doc.info.page_count)
+            except ValueError as e:
+                raise SpecError(f"pages: {e}") from e
+
+    def _resolve_example(self, csv: str, base_dir: Path | None) -> str | None:
+        candidate = Path(csv).expanduser()
+        options = [candidate] if candidate.is_absolute() else [
+            d / candidate for d in (base_dir, self.app.workspace.specs_dir) if d is not None
+        ]
+        for option in options:
+            if option.is_file():
+                return str(option.resolve())
+        return None
 
     def _generate(self, prompt: str, feedback: str, origin: str) -> int:
         """Chiama Gemini; se la specifica non è valida chiede una correzione (una volta)."""
@@ -351,6 +381,7 @@ class SetupSession:
             "primer_markdown": primer,
             "spec_yaml": spec_file.read_text(encoding="utf-8"),
             "summary": f"Partenza da primer '{primer_name}' e specifica '{spec_name}' esistenti.",
+            "_base_dir": spec_file.parent,
             "questions": [],
             "preview_pages": [],
         }
@@ -383,6 +414,7 @@ class SetupSession:
             "primer_markdown": primer_text if primer_text is not None else self.primer_text(),
             "spec_yaml": spec_text if spec_text is not None else self.spec_text(),
             "summary": "Modifica manuale.",
+            "_base_dir": self.round_dir(),
             "questions": [],
             "preview_pages": self.state.preview_pages,
         }
@@ -403,13 +435,19 @@ class SetupSession:
         return self.state.current_round
 
     # ---------------------------------------------------------------- pagine
-    def _valid_preview_pages(self, pages: Any) -> list[int]:
-        result = []
+    def _valid_preview_pages(self, pages: Any, from_gemini: bool = False) -> list[int]:
+        numbers = []
         for p in pages or []:
             try:
-                n = int(p)
+                numbers.append(int(p))
             except (TypeError, ValueError):
                 continue
+        context = self.state.context_pages
+        if from_gemini and numbers and not set(numbers) & set(context) and all(1 <= n <= len(context) for n in numbers):
+            # Gemini ha usato la numerazione dell'estratto: si riporta alle pagine originali.
+            numbers = [context[n - 1] for n in numbers]
+        result = []
+        for n in numbers:
             if 1 <= n <= self.doc.info.page_count and n not in result:
                 result.append(n)
         return result[:MAX_PREVIEW_PAGES]
@@ -523,6 +561,9 @@ class SetupSession:
         shutil.copyfile(self.primer_path, primer_target)
 
         data = yaml.safe_load(self.spec_text())
+        csv = (data.get("examples") or {}).get("csv")
+        if csv and not self.state.reference_csv and Path(csv).parent == spec_target.parent.resolve():
+            data["examples"]["csv"] = Path(csv).name
         if self.state.reference_csv:
             example_copy = spec_target.with_name(f"{self.state.spec_name}_esempio.csv")
             shutil.copyfile(self.state.reference_csv, example_copy)

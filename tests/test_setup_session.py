@@ -268,3 +268,56 @@ def test_save_reuses_preview_only_if_rules_unchanged(env, pdf_factory):
     spec_file = app.workspace.spec_path(other.state.spec_name)
     spec_file.write_text(spec_file.read_text(encoding="utf-8") + "instructions: nuova regola\n", encoding="utf-8")
     assert other.reuse_preview() == 0
+
+
+def test_preview_pages_in_subset_numbering_are_mapped(env):
+    app, doc, fake = env
+    fake.setup_answers = [answer(pages=(2, 3))]          # numerazione dell'estratto
+    s = SetupSession.new(app, doc, [1, 6, 7])
+    s.start()
+    assert s.state.preview_pages == [6, 7]
+
+
+def test_manual_edit_keeps_preview_pages(env):
+    app, doc, fake = env
+    fake.setup_answers = [answer(pages=(6,))]
+    s = SetupSession.new(app, doc, [5, 6, 7])
+    s.start()
+    s.set_preview_pages([1])
+    s.manual_edit_done(primer_text="# P")
+    assert s.state.preview_pages == [1]
+
+
+def test_invented_example_csv_is_dropped(env):
+    app, doc, fake = env
+    fake.setup_answers = [answer(spec=SPEC_V1 + "examples:\n  csv: esempio.csv\n")]
+    s = SetupSession.new(app, doc, [1, 2])
+    s.start()
+    assert s.load_spec().example_csv_path() is None
+    s.run_preview(show_progress=False)                  # nessun errore per file mancante
+
+
+def test_pages_outside_document_trigger_correction(env):
+    app, doc, fake = env
+    fake.setup_answers = [answer(spec=SPEC_V1 + "pages: '5-300'\n"), answer(spec=SPEC_V1 + "pages: '5-'\n")]
+    s = SetupSession.new(app, doc, [1, 2])
+    s.start()
+    assert "fuori dal documento" in fake.setup_prompts[1].prompt
+    assert s.load_spec().pages == "5-"
+
+
+def test_existing_spec_with_relative_example_csv(env, tmp_path, pdf_factory):
+    app, doc, fake = env
+    ref = tmp_path / "rif.csv"
+    ref.write_text("MOTORE,CODICE,Pagina,File\nM,C,1,x.pdf\n", encoding="utf-8")
+    fake.setup_answers = [answer()]
+    s = SetupSession.new(app, doc, [1, 2], reference_csv=ref)
+    s.start()
+    s.save()                                            # salva examples.csv: <nome>_esempio.csv
+    other = app.documents.add(pdf_factory("Gemello.pdf", pages=4, prefix="G"))
+    s2 = SetupSession.new(app, other, [1, 2])
+    s2.start_from_existing(doc.id, doc.id)
+    assert s2.load_spec().example_csv_path() == app.workspace.spec_path(doc.id).with_name(f"{doc.id}_esempio.csv")
+    s2.run_preview(show_progress=False)
+    _, spec_path = s2.save()
+    assert load_spec(spec_path).examples.csv == f"{doc.id}_esempio.csv"
