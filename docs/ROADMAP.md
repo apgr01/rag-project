@@ -44,7 +44,7 @@ Decisi insieme e da rispettare in tutti gli step:
   d'esempio + pagine campione.
 - [x] **Esperienza d'uso**: CLI guidata (`doctor`, `add`, `list`, domande quando manca
   qualcosa, stima dei tempi, ripresa), guida passo passo.
-- [x] **Test**: 46 test senza rete con Gemini simulato.
+- [x] **Test**: 50 test senza rete con Gemini simulato.
 - [ ] **Step 3 — Qualità del retrieval (RAG)**: embedding multilingue locali configurabili,
   soglia di rilevanza.
 
@@ -53,8 +53,7 @@ Decisi insieme e da rispettare in tutti gli step:
 Indicizzazione, in ordine di utilità prevista:
 
 1. **Collaudo su cataloghi reali** e messa a punto di prompt e specifiche d'esempio.
-2. **Confronto con un CSV di riferimento** (`ragpdf compare`): precisione e copertura
-   rispetto a un indice fatto a mano, per misurare le modifiche a primer e specifiche.
+2. ~~Confronto con un CSV di riferimento~~ → fatto: `ragpdf compare`.
 3. **Rilettura di verifica** opzionale: seconda chiamata sulle pagine con anomalie o con
    poche righe rispetto alle attese.
 4. **Classificazione rapida delle pagine** per saltare automaticamente copertine, indici e

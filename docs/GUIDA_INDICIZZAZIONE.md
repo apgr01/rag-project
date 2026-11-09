@@ -175,6 +175,22 @@ Apri il CSV prodotto (`data\exports\componenti\catalogo-1-lombardini-rel-1501.cs
 
 Ripeti finché il risultato sulle pagine di prova ti convince.
 
+**Hai un indice fatto a mano per lo stesso catalogo?** Usalo per misurare il risultato:
+
+```powershell
+ragpdf compare lombardini --spec componenti --reference "C:\indici\indice_componenti_all.csv"
+```
+
+Il programma considera solo le righe del riferimento dello stesso file PDF e delle pagine
+elaborate, e mostra:
+
+- **copertura**: quante righe del riferimento il tool ha trovato;
+- **precisione**: quante righe del tool sono presenti anche nel riferimento.
+
+Le differenze riga per riga finiscono in `..._confronto.csv`. Di default si confrontano
+tutte le colonne in comune; con `--key FIN_CODE,OEM_CODE,MOTORE` scegli tu quali, utile
+quando alcune colonne sono scritte in modo diverso ma non ti interessano.
+
 ---
 
 ## 5. Indicizza tutto il documento

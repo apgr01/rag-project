@@ -57,3 +57,15 @@ def test_spec_draft_with_simulated_gemini(run, pdf_factory, tmp_path, monkeypatc
     run("add", str(pdf_factory(pages=6)), "--no-primer")
     assert run("spec", "draft", "bozza", "--request", "una riga per codice", "--doc", "catalogo") == 1
     assert (tmp_path / "data" / "specs" / "bozza.yaml").exists()
+
+
+def test_compare_command(run, pdf_factory, tmp_path, capsys):
+    run("add", str(pdf_factory("Cat.pdf", pages=2)), "--no-primer")
+    run("spec", "new", "s")
+    run("index", "cat", "--spec", "s", "-y")
+    ref = tmp_path / "rif.csv"
+    ref.write_text("CODICE,PAGINA_PDF,FILE_ORIGINE\n[simulato] codice,1,Cat.pdf\nALTRO,9,Cat.pdf\n", encoding="utf-8")
+    assert run("compare", "cat", "--spec", "s", "--reference", str(ref), "--key", "CODICE") == 0
+    out = capsys.readouterr().out
+    assert "Copertura: 100.0%" in out          # la riga a pagina 9 è esclusa (non elaborata)
+    assert (tmp_path / "data" / "exports" / "s" / "cat_confronto.csv").exists()

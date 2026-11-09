@@ -99,6 +99,7 @@ La guida completa, passo per passo e con esempi, è in
 | `ragpdf spec check <nome> [--show-prompt <doc>]` | Valida la specifica e mostra cosa verrà chiesto a Gemini |
 | `ragpdf index <doc>... --spec <nome>` | Indicizza ed esporta il CSV (`--pages`, `--force`, `--all`, `-y`) |
 | `ragpdf export [--all] --spec <nome>` | Rigenera i CSV senza chiamare Gemini; con più documenti anche `TUTTI.csv` |
+| `ragpdf compare <doc> --reference <csv>` | Confronta il CSV prodotto con uno di riferimento: copertura, precisione, differenze |
 | `ragpdf rag describe/build/ask` | Modalità domande e risposte |
 
 Ogni comando ha il suo aiuto: `ragpdf <comando> --help`.

@@ -496,6 +496,56 @@ def cmd_export(app: App, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_compare(app: App, args: argparse.Namespace) -> int:
+    from ragpdf.core.render import parse_page_ranges
+    from ragpdf.indexing.compare import compare_rows, filter_reference
+    from ragpdf.indexing.export import _to_csv, _write
+    from ragpdf.indexing.spec import read_csv_rows
+
+    spec = app.load_spec(_resolve_spec_name(app, args.spec))
+    doc = app.documents.get(args.doc)
+    produced = app.export(doc, spec).index
+    ref_columns, reference = read_csv_rows(Path(args.reference))
+
+    page_col, source_col = spec.output.page_column, spec.output.source_column
+    pages = parse_page_ranges(args.pages, doc.info.page_count) if args.pages else None
+    if args.pages is None and not args.all_reference:
+        # di default si confrontano solo le pagine effettivamente elaborate
+        processed = sorted({int(r[page_col]) for r in produced.rows if page_col and r.get(page_col)})
+        pages = processed or None
+    reference = filter_reference(reference, source_col, doc.info.source_filename, page_col, pages)
+
+    if args.key:
+        keys = [k.strip() for k in args.key.split(",") if k.strip()]
+    else:
+        excluded = {page_col, source_col}
+        keys = [c for c in produced.columns if c in ref_columns and c not in excluded]
+    missing_cols = [k for k in keys if k not in ref_columns or k not in produced.columns]
+    if not keys or missing_cols:
+        ui.error("Colonne chiave non valide: " + (", ".join(missing_cols) or "nessuna colonna in comune"))
+        ui.hint(f"Colonne del riferimento: {', '.join(ref_columns)}")
+        return 1
+
+    result = compare_rows(produced.rows, reference, keys)
+    ui.title(f"Confronto '{doc.id}' con {Path(args.reference).name}")
+    ui.info(f"Colonne confrontate: {', '.join(keys)}")
+    if pages:
+        ui.info(f"Righe del riferimento considerate: {result.reference_rows} (pagine {args.pages or 'elaborate'})")
+    ui.table(
+        ["", "righe"],
+        [["prodotte dal tool", result.produced_rows], ["nel riferimento", result.reference_rows],
+         ["trovate in entrambi", result.matched], ["mancanti (solo nel riferimento)", len(result.missing)],
+         ["in più (solo nel tool)", len(result.extra)]],
+    )
+    ui.info(f"Copertura: {result.recall:.1%}   Precisione: {result.precision:.1%}")
+
+    out = app.workspace.exports_dir / spec.name / f"{doc.id}_confronto.csv"
+    diff_rows = [{"esito": "mancante", **r} for r in result.missing] + [{"esito": "in più", **r} for r in result.extra]
+    _write(out, _to_csv(["esito", *keys], diff_rows, spec.output.delimiter), spec.output.encoding)
+    ui.ok(f"Differenze riga per riga: {out}")
+    return 0
+
+
 # --- RAG -----------------------------------------------------------------------------
 def cmd_rag_describe(app: App, args: argparse.Namespace) -> int:
     from ragpdf.rag.pipeline import describe_document
@@ -632,6 +682,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--spec", help="specifica")
     p.add_argument("--merge", action="store_true", help="crea anche un CSV unico (TUTTI.csv)")
     p.set_defaults(func=cmd_export)
+
+    p = sub.add_parser("compare", help="confronta il CSV prodotto con un CSV di riferimento (es. fatto a mano)")
+    p.add_argument("doc", help="documento indicizzato")
+    p.add_argument("--reference", required=True, help="CSV di riferimento")
+    p.add_argument("--spec", help="specifica")
+    p.add_argument("--key", help="colonne da confrontare, separate da virgola (default: tutte quelle in comune)")
+    p.add_argument("--pages", help="considera solo queste pagine del riferimento (default: quelle elaborate)")
+    p.add_argument("--all-reference", action="store_true", help="usa tutto il riferimento, senza filtrare le pagine")
+    p.set_defaults(func=cmd_compare)
 
     # RAG
     rp = sub.add_parser("rag", help="modalità domande e risposte sui documenti")
