@@ -42,6 +42,9 @@ from ragpdf.core.config import GeminiSettings
 from ragpdf.core.paths import ENV_FILE
 
 RETRYABLE_STATUS = {500, 502, 503, 504}
+# Sotto questa dimensione un PDF viene inviato direttamente nella richiesta (limite
+# complessivo di una richiesta: 20 MB); sopra, tramite la Files API.
+INLINE_PDF_MAX_BYTES = 15 * 1024 * 1024
 
 
 class GeminiError(Exception):
@@ -61,21 +64,20 @@ class LLMClient(Protocol):
 
     Il client vero (:class:`GeminiClient`) e quello simulato per i test
     (:class:`ragpdf.core.fake_gemini.FakeGeminiClient`) la rispettano entrambi.
+    Ogni richiesta può allegare immagini e/o un PDF.
     """
 
     @property
     def parallelism(self) -> int: ...
 
     def generate_text(
-        self, prompt: str, images: Sequence[Path] = (), model: str | None = None
+        self, prompt: str, images: Sequence[Path] = (), pdf: Path | None = None, model: str | None = None
     ) -> str: ...
 
     def generate_json(
         self, prompt: str, json_schema: dict[str, Any], images: Sequence[Path] = (),
-        model: str | None = None,
+        pdf: Path | None = None, model: str | None = None,
     ) -> Any: ...
-
-    def generate_text_from_pdf(self, prompt: str, pdf_path: Path, model: str | None = None) -> str: ...
 
 
 # --------------------------------------------------------------------------------------
@@ -262,8 +264,7 @@ class GeminiClient:
         raise GeminiError(f"Richiesta fallita dopo ripetuti tentativi: {last}")
 
     # --- costruzione delle richieste ----------------------------------------------
-    @staticmethod
-    def _image_parts(images: Sequence[Path]) -> list[Any]:
+    def _image_parts(self, images: Sequence[Path]) -> list[Any]:
         from google.genai import types
 
         parts = []
@@ -277,41 +278,11 @@ class GeminiClient:
     def _config(self, **extra: Any) -> Any:
         from google.genai import types
 
+        if self.settings.media_resolution:
+            extra.setdefault(
+                "media_resolution", f"MEDIA_RESOLUTION_{self.settings.media_resolution.upper()}"
+            )
         return types.GenerateContentConfig(temperature=self.settings.temperature, **extra)
-
-    # --- API pubblica --------------------------------------------------------------
-    def generate_text(self, prompt: str, images: Sequence[Path] = (), model: str | None = None) -> str:
-        contents = [*self._image_parts(images), prompt]
-        model = model or (self.settings.model if images else self.settings.text_model)
-
-        def action(client: Any) -> str:
-            response = client.models.generate_content(model=model, contents=contents, config=self._config())
-            return (response.text or "").strip()
-
-        return self._call(action)
-
-    def generate_json(
-        self,
-        prompt: str,
-        json_schema: dict[str, Any],
-        images: Sequence[Path] = (),
-        model: str | None = None,
-    ) -> Any:
-        """Chiede una risposta JSON conforme a ``json_schema`` (output strutturato)."""
-        contents = [*self._image_parts(images), prompt]
-        model = model or self.settings.model
-        config = self._config(response_mime_type="application/json", response_json_schema=json_schema)
-
-        def action(client: Any) -> Any:
-            response = client.models.generate_content(model=model, contents=contents, config=config)
-            text = response.text or ""
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError as e:
-                # Capita raramente (es. risposta troncata): la trattiamo come errore temporaneo.
-                raise ConnectionError(f"risposta JSON non valida ({e})") from e
-
-        return self._call(action)
 
     def _wait_until_active(self, client: Any, uploaded: Any, timeout: float = 180) -> Any:
         """Attende che Gemini abbia elaborato il file caricato (stato ACTIVE)."""
@@ -329,24 +300,87 @@ class GeminiClient:
             waited += 3
             uploaded = client.files.get(name=uploaded.name)
 
-    def generate_text_from_pdf(self, prompt: str, pdf_path: Path, model: str | None = None) -> str:
-        """Invia un intero PDF (tramite la Files API di Gemini) insieme al prompt."""
-        model = model or self.settings.text_model
+    def _generate(
+        self,
+        prompt: str,
+        images: Sequence[Path],
+        pdf: Path | None,
+        model: str,
+        config: Any,
+        parse: Callable[[Any], Any],
+    ) -> Any:
+        """Chiamata generica: allegati (PDF e/o immagini) + prompt, con rotazione delle chiavi.
 
-        def action(client: Any) -> str:
-            # Il file caricato appartiene alla chiave che lo carica: l'upload va
-            # quindi fatto qui dentro, con il client della chiave scelta.
-            uploaded = client.files.upload(file=str(pdf_path))
-            uploaded = self._wait_until_active(client, uploaded)
+        I PDF piccoli vengono inviati direttamente nella richiesta (*inline*); quelli più
+        grandi di ``INLINE_PDF_MAX_BYTES`` passano dalla Files API, che li carica a parte.
+        Il file caricato appartiene alla chiave che lo carica: l'upload avviene quindi
+        dentro ``action``, con il client della chiave scelta per quel tentativo.
+        """
+        from google.genai import types
+
+        image_parts = self._image_parts(images)
+        pdf_bytes: bytes | None = None
+        if pdf is not None:
+            pdf = Path(pdf)
+            if not pdf.exists():
+                raise FileNotFoundError(f"PDF non trovato: {pdf}")
+            if pdf.stat().st_size <= INLINE_PDF_MAX_BYTES:
+                pdf_bytes = pdf.read_bytes()
+
+        def action(client: Any) -> Any:
+            uploaded = None
+            parts: list[Any] = []
+            if pdf is not None:
+                if pdf_bytes is not None:
+                    parts.append(types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
+                else:
+                    uploaded = self._wait_until_active(client, client.files.upload(file=str(pdf)))
+                    parts.append(uploaded)
+            parts.extend(image_parts)
+            parts.append(prompt)
             try:
-                response = client.models.generate_content(
-                    model=model, contents=[uploaded, prompt], config=self._config()
-                )
-                return (response.text or "").strip()
+                response = client.models.generate_content(model=model, contents=parts, config=config)
+                return parse(response)
             finally:
-                try:
-                    client.files.delete(name=uploaded.name)
-                except Exception:
-                    pass  # il file scade comunque da solo dopo 48 ore
+                if uploaded is not None:
+                    try:
+                        client.files.delete(name=uploaded.name)
+                    except Exception:
+                        pass  # il file scade comunque da solo dopo 48 ore
 
         return self._call(action)
+
+    # --- API pubblica --------------------------------------------------------------
+    def generate_text(
+        self,
+        prompt: str,
+        images: Sequence[Path] = (),
+        pdf: Path | None = None,
+        model: str | None = None,
+    ) -> str:
+        model = model or (self.settings.model if images or pdf else self.settings.text_model)
+        return self._generate(
+            prompt, images, pdf, model, self._config(), lambda r: (r.text or "").strip()
+        )
+
+    def generate_json(
+        self,
+        prompt: str,
+        json_schema: dict[str, Any],
+        images: Sequence[Path] = (),
+        pdf: Path | None = None,
+        model: str | None = None,
+    ) -> Any:
+        """Chiede una risposta JSON conforme a ``json_schema`` (output strutturato)."""
+        model = model or self.settings.model
+        config = self._config(response_mime_type="application/json", response_json_schema=json_schema)
+
+        def parse(response: Any) -> Any:
+            text = response.text or ""
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError as e:
+                # Capita raramente (es. risposta troncata): la trattiamo come errore temporaneo.
+                raise ConnectionError(f"risposta JSON non valida ({e})") from e
+
+        return self._generate(prompt, images, pdf, model, config, parse)

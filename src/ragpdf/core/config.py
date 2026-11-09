@@ -11,6 +11,7 @@ quelli che interessano.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -32,6 +33,10 @@ class GeminiSettings(_Section):
         description="Modello per le risposte testuali e la generazione del primer.",
     )
     temperature: float = Field(0.1, ge=0.0, le=2.0)
+    media_resolution: Literal["low", "medium", "high"] | None = Field(
+        None,
+        description="Dettaglio con cui Gemini guarda immagini e PDF. Vuoto = default del modello.",
+    )
     requests_per_minute_per_key: float = Field(
         10, gt=0, description="Ritmo massimo di richieste per ciascuna chiave API."
     )
@@ -46,6 +51,10 @@ class RenderSettings(_Section):
 
 
 class IndexingSettings(_Section):
+    input: Literal["image+text", "image", "pdf"] = Field(
+        "image+text",
+        description="Cosa ricevere per ogni pagina: immagine + testo estratto, solo immagine, o PDF.",
+    )
     max_workers: int | None = Field(
         None, ge=1, description="Richieste parallele. Vuoto = una per chiave API."
     )

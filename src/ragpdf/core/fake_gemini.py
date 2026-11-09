@@ -8,9 +8,10 @@ Serve a due cose:
   la CLI usa questo client, così si può provare tutto il flusso (aggiunta del
   documento, primer, indicizzazione, export) senza consumare quota.
 
-Le risposte di default sono segnaposto riconoscibili (``[simulato] ...``). Per
-risposte personalizzate si passa un ``responder``: una funzione che riceve la
-richiesta e restituisce la risposta.
+Le risposte di default sono segnaposto riconoscibili (``[simulato] ...``),
+costruiti in modo da rispettare lo schema richiesto. Per risposte personalizzate
+si passa un ``responder``: una funzione che riceve la richiesta e restituisce la
+risposta.
 """
 
 from __future__ import annotations
@@ -24,12 +25,13 @@ from typing import Any
 
 @dataclass
 class FakeRequest:
-    kind: str                     # "text" | "json" | "pdf"
+    kind: str                     # "text" | "json"
     prompt: str
     images: list[Path] = field(default_factory=list)
     json_schema: dict[str, Any] | None = None
-    pdf_path: Path | None = None
+    pdf: Path | None = None
     model: str | None = None
+    pdf_pages: int | None = None  # pagine del PDF allegato (letto al momento della richiesta)
 
 
 def _placeholder_from_schema(schema: dict[str, Any], label: str = "valore") -> Any:
@@ -49,6 +51,18 @@ def _placeholder_from_schema(schema: dict[str, Any], label: str = "valore") -> A
     return f"[simulato] {label}"
 
 
+def _count_pages(pdf: Path | None) -> int | None:
+    if pdf is None:
+        return None
+    try:
+        import pymupdf
+
+        with pymupdf.open(pdf) as doc:
+            return len(doc)
+    except Exception:
+        return None
+
+
 class FakeGeminiClient:
     def __init__(
         self,
@@ -65,29 +79,27 @@ class FakeGeminiClient:
         return self._parallelism
 
     def _handle(self, request: FakeRequest, default: Callable[[], Any]) -> Any:
+        # Il PDF allegato può essere un file temporaneo: lo si legge subito.
+        request.pdf_pages = _count_pages(request.pdf)
         with self._lock:
             self.requests.append(request)
         if self.responder is not None:
             return self.responder(request)
         return default()
 
-    def generate_text(self, prompt: str, images: Sequence[Path] = (), model: str | None = None) -> str:
-        req = FakeRequest("text", prompt, list(images), model=model)
-        return self._handle(req, lambda: "[simulato] Risposta generata senza chiamare Gemini.")
+    def generate_text(
+        self, prompt: str, images: Sequence[Path] = (), pdf: Path | None = None, model: str | None = None
+    ) -> str:
+        req = FakeRequest("text", prompt, list(images), pdf=pdf, model=model)
+        if pdf is not None:
+            default = "# Primer [simulato]\n\nBozza generata dal client simulato: sostituiscila con un primer reale.\n"
+        else:
+            default = "[simulato] Risposta generata senza chiamare Gemini."
+        return self._handle(req, lambda: default)
 
     def generate_json(
         self, prompt: str, json_schema: dict[str, Any], images: Sequence[Path] = (),
-        model: str | None = None,
+        pdf: Path | None = None, model: str | None = None,
     ) -> Any:
-        req = FakeRequest("json", prompt, list(images), json_schema=json_schema, model=model)
+        req = FakeRequest("json", prompt, list(images), json_schema=json_schema, pdf=pdf, model=model)
         return self._handle(req, lambda: _placeholder_from_schema(json_schema))
-
-    def generate_text_from_pdf(self, prompt: str, pdf_path: Path, model: str | None = None) -> str:
-        req = FakeRequest("pdf", prompt, pdf_path=Path(pdf_path), model=model)
-        return self._handle(
-            req,
-            lambda: (
-                f"# Primer — {Path(pdf_path).stem} [simulato]\n\n"
-                "Bozza generata dal client simulato: sostituiscila con un primer reale.\n"
-            ),
-        )

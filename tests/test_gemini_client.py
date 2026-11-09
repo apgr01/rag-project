@@ -114,8 +114,12 @@ def test_no_keys():
         GeminiClient([], GeminiSettings())
 
 
-def test_pdf_upload_waits_until_active(tmp_path):
+def test_large_pdf_upload_waits_until_active(tmp_path, monkeypatch):
     from types import SimpleNamespace as NS
+
+    import ragpdf.core.gemini as gemini_module
+
+    monkeypatch.setattr(gemini_module, "INLINE_PDF_MAX_BYTES", 1)  # forza la Files API
 
     states = iter(["PROCESSING", "PROCESSING", "ACTIVE"])
 
@@ -131,6 +135,7 @@ def test_pdf_upload_waits_until_active(tmp_path):
 
     class Models:
         def generate_content(self, model, contents, config):
+            assert contents[0].name == "files/1" and contents[-1] == "p"
             return NS(text=" primer ")
 
     sdk = NS(files=Files(), models=Models())
@@ -139,5 +144,27 @@ def test_pdf_upload_waits_until_active(tmp_path):
                           sleep=clock.sleep, clock=clock.clock, log=lambda m: None)
     pdf = tmp_path / "a.pdf"
     pdf.write_bytes(b"%PDF")
-    assert client.generate_text_from_pdf("p", pdf) == "primer"
+    assert client.generate_text("p", pdf=pdf) == "primer"
     assert clock.sleeps == [3, 3] and sdk.files.deleted == "files/1"
+
+
+def test_small_pdf_is_sent_inline(tmp_path):
+    from types import SimpleNamespace as NS
+
+    seen = {}
+
+    class Models:
+        def generate_content(self, model, contents, config):
+            seen["contents"] = contents
+            seen["model"] = model
+            return NS(text='{"ok": true}')
+
+    sdk = NS(files=None, models=Models())
+    client = GeminiClient(["k"], GeminiSettings(model="vision-m", text_model="text-m", media_resolution="high"),
+                          client_factory=lambda k: sdk, log=lambda m: None)
+    pdf = tmp_path / "a.pdf"
+    pdf.write_bytes(b"%PDF-1.4 piccolo")
+    assert client.generate_json("p", {"type": "object"}, pdf=pdf) == {"ok": True}
+    part = seen["contents"][0]
+    assert part.inline_data.mime_type == "application/pdf" and seen["model"] == "vision-m"
+    assert client.generate_text("ciao") is not None and seen["model"] == "text-m"
