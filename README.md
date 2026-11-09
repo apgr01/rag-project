@@ -71,6 +71,17 @@ ragpdf doctor --online
 ## Uso rapido: dal PDF al CSV
 
 ```bash
+ragpdf ui
+```
+
+Si apre nel browser l'**interfaccia grafica**: carichi il PDF, scegli le pagine cliccando le
+miniature, Gemini propone cosa estrarre e prova l'estrazione, tu correggi a parole; poi avvii
+l'indicizzazione e scarichi il CSV. Ogni invio a Gemini chiede conferma e mostra quante
+richieste partiranno.
+
+Da riga di comando lo stesso percorso è:
+
+```bash
 ragpdf setup "C:\cataloghi\Catalogo Lombardini.pdf"   # configurazione guidata con anteprima
 ragpdf index lombardini                                 # indicizzazione completa
 ```
@@ -101,6 +112,7 @@ La guida completa, passo per passo e con esempi, è in
 | Comando | Cosa fa |
 |---|---|
 | `ragpdf doctor [--online]` | Verifica chiavi, cartelle, documenti (e una richiesta reale a Gemini) |
+| `ragpdf ui` | **Interfaccia grafica** nel browser (consigliata) |
 | `ragpdf setup <doc o pdf>` | **Configurazione guidata**: primer e specifica con Gemini, anteprima e correzioni a parole |
 | `ragpdf add <pdf>...` | Aggiunge PDF al workspace |
 | `ragpdf list` | Documenti, primer associati, avanzamento delle indicizzazioni |
@@ -125,7 +137,7 @@ d'ambiente `RAGPDF_FAKE_GEMINI=1`: le risposte di Gemini vengono simulate.
 
 ```
 rag-project/
-├── src/ragpdf/          codice (core/, indexing/, rag/, cli.py)
+├── src/ragpdf/          codice (core/, indexing/, rag/, web/, cli.py)
 ├── configs/
 │   ├── default.yaml     configurazione (modelli, DPI, ritmo delle richieste, ...)
 │   └── prompts/         prompt inviati a Gemini, modificabili

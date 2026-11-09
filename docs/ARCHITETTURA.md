@@ -26,6 +26,10 @@ src/ragpdf/
 ├── cli.py              interfaccia a riga di comando (solo input/output)
 ├── ui.py               domande, messaggi, tabelle nel terminale
 ├── cli_setup.py        dialogo della configurazione guidata (ragpdf setup)
+├── web/                interfaccia grafica (ragpdf ui)
+│   ├── server.py       API JSON (FastAPI) sopra app.py e setup_session.py
+│   ├── jobs.py         lavori in background: avanzamento, annullamento
+│   └── static/         pagina HTML, CSS e JavaScript (senza librerie esterne)
 ├── app.py              strato applicativo: collega i pezzi, usato dalla CLI
 ├── setup_session.py    logica della configurazione guidata (giri, anteprima, salvataggio)
 ├── primer.py           bozza del primer da PDF intero o da un estratto
@@ -58,7 +62,7 @@ src/ragpdf/
     └── vector_index.py wrapper ChromaDB (dipendenza opzionale)
 ```
 
-Le dipendenze vanno in una sola direzione: `cli → app → indexing/rag → core`. Nessun modulo
+Le dipendenze vanno in una sola direzione: `cli / web → app → indexing/rag → core`. Nessun modulo
 di `core` conosce le modalità, e le due modalità non si conoscono tra loro.
 
 ## Il flusso dell'indicizzazione
@@ -147,6 +151,33 @@ Scelte:
 - **Specifica non valida**: si chiede una correzione mostrando gli errori, una volta; se
   fallisce ancora, la versione precedente resta quella valida.
 
+## L'interfaccia grafica (`ragpdf ui`)
+
+```
+browser (static/app.js) ──HTTP JSON──► web/server.py ──► App, SetupSession, Extractor (come la CLI)
+        ▲                                   │
+        └──── GET /api/jobs/<id> ◄── web/jobs.py: thread in background + RunControl
+                (ogni secondo)               (avanzamento per pagina, annullamento)
+```
+
+Scelte:
+
+- **Server locale + pagina web**, non un file HTML da solo: il browser non può leggere le
+  chiavi nel `.env` né elaborare i PDF; il server ascolta solo su `127.0.0.1`.
+- **FastAPI + JavaScript semplice** invece di Streamlit: Streamlit riesegue la pagina a ogni
+  interazione, scomodo per bozze, conferme e versioni; un'interfaccia scritta a mano lascia
+  il pieno controllo del flusso e resta leggibile senza strumenti di compilazione.
+- **Nessuna logica nell'interfaccia**: le API chiamano gli stessi oggetti della riga di
+  comando, quindi i due modi d'uso producono gli stessi file e possono essere alternati.
+- **Lavori in background, uno per documento**: chiamate lunghe e indicizzazione non
+  bloccano il server; `RunControl` porta l'avanzamento pagina per pagina e la richiesta di
+  annullamento fino a `run_pages`.
+- **Niente parte verso Gemini da sola**: gli endpoint che usano Gemini (`start`, `revise`,
+  `preview`, `index`) sono separati da quelli che preparano o mostrano (`setup`, `prompt`,
+  `plan`), e la pagina li chiama solo dopo una conferma con il numero di richieste.
+- **PyMuPDF e thread**: miniature e lavori possono arrivare insieme, quindi tutte le
+  aperture di PDF passano da un unico lucchetto (`PDF_LOCK`).
+
 ## Cosa riceve Gemini per ogni pagina
 
 `indexing.input` in configurazione:
@@ -179,6 +210,13 @@ tenere corte le risposte.
   pagina con spiegazione, senza tentativi inutili;
 - altri errori → subito, con messaggio chiaro.
 
+**Quote.** Il tipo di quota superata (al minuto / giornaliera) e l'attesa suggerita si leggono
+dai *dettagli* dell'errore 429 (`QuotaFailure.quotaId`, `RetryInfo.retryDelay`). Poiché le
+quote valgono per progetto, oltre al limite per chiave c'è un **ritmo complessivo adattivo**
+(`_AdaptiveLimit`): a ogni episodio di quota superata scende al 90% delle richieste riuscite
+nell'ultimo minuto, poi risale del 10% ogni 20 successi. Gli errori di quota non fanno
+fallire le pagine: oltre 15 minuti di quota esaurita il lavoro si ferma in modo ordinato.
+
 PDF fino a 15 MB vengono inviati direttamente nella richiesta; oltre, tramite la Files API
 (caricati con la chiave del tentativo, attesi fino allo stato ACTIVE, poi eliminati).
 
@@ -194,6 +232,7 @@ l'intero programma senza rete (`RAGPDF_FAKE_GEMINI=1`).
 | Una chiamata per pagina | Più pagine per chiamata | Pagine dense producono molte righe: una per chiamata riduce il rischio di righe perse e rende il lavoro riprendibile |
 | Contesto ricostruito dopo | Passare la pagina precedente a Gemini | Raddoppierebbe i costi e impedirebbe il parallelismo |
 | CLI con argparse | Typer/Rich | Nessuna dipendenza in più; output semplice leggibile su ogni console Windows |
+| Interfaccia web locale (FastAPI + JS) | Streamlit/Gradio, app desktop | Pieno controllo di conferme, bozze e versioni; nessuna compilazione; si apre in qualsiasi browser |
 | ChromaDB opzionale | Dipendenza obbligatoria | L'indicizzazione non lo usa e su alcune versioni di Python/Windows è difficile da installare |
 | Estratto PDF con pagine scelte (setup/primer) | PDF intero sempre | Limiti di dimensione, costi e contenuto ripetitivo; l'utente sa quali pagine spiegano il catalogo |
 | Corrispondenza delle pagine nel prompt | Numero originale stampato sulle pagine | Le pagine restano identiche all'originale; nessun elemento estraneo da interpretare |

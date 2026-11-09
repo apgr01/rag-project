@@ -6,12 +6,15 @@ un catalogo ricambi motore, ma il procedimento è lo stesso per qualunque PDF.
 I comandi sono scritti per **Windows PowerShell**; su macOS/Linux cambia solo
 l'attivazione dell'ambiente virtuale (`source .venv/bin/activate`).
 
-**In breve:**
+**In breve:** il modo più comodo è l'interfaccia grafica nel browser.
 
 ```powershell
-ragpdf setup "C:\cataloghi\Catalogo 1 LOMBARDINI rel 1501.pdf"   # configurazione guidata
-ragpdf index lombardini                                          # indicizzazione completa
+ragpdf ui
 ```
+
+Si apre il browser su `http://127.0.0.1:8765`: carichi il PDF, lo configuri con Gemini
+guardando le anteprime, avvii l'indicizzazione e scarichi il CSV. Tutto il resto della guida
+spiega gli stessi passi, anche da riga di comando.
 
 ---
 
@@ -62,7 +65,53 @@ ragpdf doctor --online
 
 ---
 
-## 1. Configurazione guidata: `ragpdf setup`
+## 1. Interfaccia grafica: `ragpdf ui` (consigliata)
+
+```powershell
+ragpdf ui
+```
+
+Il comando avvia un piccolo server **solo su questo computer** e apre il browser. Lascia
+aperta la finestra del terminale finché usi l'interfaccia; per chiuderla premi Ctrl+C.
+
+**Cataloghi.** Trascina un PDF nel riquadro (o cliccalo per sceglierlo). L'elenco mostra per
+ogni catalogo lo stato della configurazione e dell'indicizzazione.
+
+**1 · Configurazione.**
+1. Scegli le pagine da mostrare a Gemini cliccando le miniature (Maiusc+clic per un
+   intervallo; doppio clic per ingrandire una pagina), oppure scrivile nel campo di testo.
+2. Scrivi cosa vuoi ottenere (o lascia vuoto) e, se vuoi, carica un CSV di riferimento.
+3. *Avanti* mostra un riepilogo: puoi tornare indietro, vedere **il prompt esatto** che verrà
+   inviato e solo allora premere *Invia a Gemini*.
+4. Arrivano la proposta di Gemini (riepilogo, domande, colonne) e la **prova di estrazione**
+   (righe estratte, confronto con il riferimento; clic su una riga per vedere la pagina).
+5. Scrivi cosa correggere nel riquadro *Correzione* e premi *Invia correzione*. Le versioni
+   restano nell'elenco: un clic per tornare a una precedente. Primer e specifica si possono
+   anche modificare a mano nei riquadri in fondo.
+6. *Salva configurazione* quando il risultato ti convince.
+
+**2 · Indicizzazione.** Mostra pagine fatte e da fare e la stima dei tempi; *Avvia* parte dopo
+una conferma. La barra di avanzamento si aggiorna da sola e *Ferma* interrompe in modo
+ordinato. Puoi chiudere la pagina: il lavoro continua finché il terminale con `ragpdf ui` è
+aperto, e riaprendo la pagina lo ritrovi.
+
+**3 · Risultati.** Numero di righe, anomalie (prima errori, poi avvisi, poi note di Gemini;
+clic per vedere la pagina), prime righe del CSV e pulsanti per scaricare CSV e anomalie.
+
+**Protezioni:**
+- i pulsanti con la stellina ✨ usano Gemini e chiedono sempre conferma, dicendo quante
+  richieste partiranno; il tasto Invio non invia mai nulla;
+- obiettivo e correzioni restano bozze, salvate nel browser, finché non premi il pulsante;
+- se hai modificato primer o specifica senza salvare, cambiando pagina viene chiesto se
+  perdere le modifiche;
+- su ogni catalogo può girare una sola operazione alla volta.
+
+Il resto della guida descrive gli stessi passi da riga di comando, utili per automatizzare o
+se preferisci il terminale.
+
+---
+
+## 1b. Configurazione guidata da riga di comando: `ragpdf setup`
 
 È il modo consigliato. Non serve leggere tutto il catalogo né scrivere a mano cosa
 indicizzare: lo propone Gemini, tu correggi a parole guardando un'anteprima del risultato.

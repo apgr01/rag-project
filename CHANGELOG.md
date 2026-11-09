@@ -6,6 +6,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
 ## [Non rilasciato] — 0.2.0
 
 ### Aggiunto
+- **Interfaccia grafica** (`ragpdf ui`): server locale e pagina web con configurazione guidata
+  (miniature cliccabili, prompt visibile prima dell'invio, conferme, bozze, versioni),
+  indicizzazione con avanzamento e annullamento, risultati e download.
+- Ritmo complessivo adattivo alle quote di Gemini e opzione
+  `gemini.max_requests_per_minute_total`.
 - **Configurazione guidata** (`ragpdf setup`): Gemini guarda le pagine scelte dall'utente
   (estratto PDF, corrispondenza delle pagine nel prompt), propone primer e specifica, prova
   l'estrazione su alcune pagine e li corregge in base alle osservazioni scritte a parole.
@@ -36,12 +41,15 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   (id leggibile e impronta SHA-256 per riconoscere i duplicati).
 - Client Gemini con pool di chiavi, ritmo per chiave condiviso tra i thread, gestione
   degli errori per codice HTTP, arresto ordinato a quote esaurite.
-- Client Gemini simulato (`RAGPDF_FAKE_GEMINI=1`) e 105 test automatici senza rete.
+- Client Gemini simulato (`RAGPDF_FAKE_GEMINI=1`) e 120 test automatici senza rete.
 - Specifiche d'esempio (`examples/specs/`) e guida passo passo
   (`docs/GUIDA_INDICIZZAZIONE.md`), documento di architettura (`docs/ARCHITETTURA.md`).
 - `pyproject.toml`, roadmap, changelog.
 
 ### Modificato
+- Errori di quota riconosciuti dai dettagli della risposta (al minuto / giornaliera, attesa
+  suggerita): non fanno più fallire le pagine.
+- Tutte le operazioni su PDF passano da un unico lucchetto (sicurezza tra thread).
 - Le pagine dell'anteprima vengono riusate nell'indicizzazione se le regole non cambiano.
 - Le colonne di contesto non sono più ripetute in ogni riga della risposta di Gemini; prompt
   di estrazione più compatto e con una regola esplicita sulla completezza delle righe.

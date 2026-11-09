@@ -53,9 +53,14 @@ Decisi insieme e da rispettare in tutti gli step:
 - [x] **Robustezza**: risposte troncate/bloccate riconosciute senza tentativi inutili; righe
   più corte (colonne di contesto non ripetute); riuso delle pagine dell'anteprima; specifica
   predefinita per documento.
+- [x] **Interfaccia grafica** (`ragpdf ui`): server locale + pagina web; configurazione con
+  miniature cliccabili, prompt visibile prima dell'invio, conferme con il numero di richieste,
+  bozze, versioni, indicizzazione con avanzamento e annullamento, risultati e download.
+- [x] **Quote**: classificazione dai dettagli dell'errore e ritmo complessivo adattivo
+  (emerso dalla prima indicizzazione reale con 10 chiavi dello stesso progetto).
 - [x] **Consumo e costi**: riepilogo di richieste e token; opzione `thinking_level`.
-- [x] **Test**: 105 test senza rete con Gemini simulato, più prove della sessione guidata in
-  un terminale reale (pseudo-tty) su un'installazione pulita.
+- [x] **Test**: 120 test senza rete con Gemini simulato, più prove della sessione guidata in
+  un terminale reale (pseudo-tty) e dell'interfaccia in Chromium (Playwright).
 - [ ] **Step 3 — Qualità del retrieval (RAG)**: embedding multilingue locali configurabili,
   soglia di rilevanza.
 
@@ -85,7 +90,8 @@ Altro:
 - Modalità **Struttura**: indice gerarchico del documento; l'analisi del PDF intero usata
   per il primer è un buon punto di partenza.
 - RAG con filtri sui metadati e ricerca ibrida (keyword per codici esatti + vettoriale).
-- Eventuale interfaccia grafica, riutilizzando `app.py`.
+- Interfaccia grafica: modalità RAG (domande sui cataloghi), unione dei CSV di più cataloghi,
+  confronto con un riferimento sull'indicizzazione completa.
 
 ## Note dal collaudo
 
