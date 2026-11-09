@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -185,12 +186,52 @@ class _KeySlot:
 
 
 class _APIFailure(Exception):
-    """Errore normalizzato: codice HTTP (o None) + messaggio."""
+    """Errore normalizzato: codice HTTP (o None), messaggio e, per i 429, dettagli della quota."""
 
-    def __init__(self, status: int | None, message: str):
+    def __init__(self, status: int | None, message: str, details: Any = None):
         self.status = status
         self.message = message
+        self.details = details
         super().__init__(f"{status}: {message}" if status else message)
+
+    @property
+    def quota_ids(self) -> list[str]:
+        """Identificativi delle quote superate, es. 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'."""
+        ids = []
+        for item in _detail_items(self.details):
+            for violation in item.get("violations", []) or []:
+                if isinstance(violation, dict) and violation.get("quotaId"):
+                    ids.append(str(violation["quotaId"]))
+        return ids
+
+    @property
+    def is_daily_quota(self) -> bool:
+        text = " ".join(self.quota_ids) or self.message
+        text = text.lower()
+        return "perday" in text or "per day" in text or "daily" in text
+
+    @property
+    def retry_delay(self) -> float | None:
+        """Attesa suggerita da Google (RetryInfo.retryDelay, oppure 'retry in 37.5s' nel messaggio)."""
+        for item in _detail_items(self.details):
+            delay = item.get("retryDelay")
+            if delay:
+                match = re.match(r"([\d.]+)s", str(delay))
+                if match:
+                    return float(match.group(1))
+        match = re.search(r"retry in ([\d.]+)\s*s", self.message, flags=re.IGNORECASE)
+        return float(match.group(1)) if match else None
+
+
+def _detail_items(details: Any) -> list[dict[str, Any]]:
+    """Gli elementi 'details' della risposta d'errore di Google, comunque sia annidata."""
+    if isinstance(details, dict):
+        error = details.get("error", details)
+        items = error.get("details", []) if isinstance(error, dict) else []
+        return [i for i in items if isinstance(i, dict)]
+    if isinstance(details, list):
+        return [i for i in details if isinstance(i, dict)]
+    return []
 
 
 def _classify(exc: Exception) -> _APIFailure | None:
@@ -201,7 +242,11 @@ def _classify(exc: Exception) -> _APIFailure | None:
         genai_errors = None
 
     if genai_errors is not None and isinstance(exc, genai_errors.APIError):
-        return _APIFailure(getattr(exc, "code", None), str(getattr(exc, "message", "") or exc))
+        return _APIFailure(
+            getattr(exc, "code", None),
+            str(getattr(exc, "message", "") or exc),
+            getattr(exc, "details", None),
+        )
 
     try:
         import httpx
@@ -216,14 +261,76 @@ def _classify(exc: Exception) -> _APIFailure | None:
     return None
 
 
-def _is_daily_quota(message: str) -> bool:
-    text = message.lower()
-    return "perday" in text or "per day" in text or "daily" in text
+class _AdaptiveLimit:
+    """Ritmo massimo complessivo (tutte le chiavi insieme), adattato alle quote reali.
+
+    Le quote di Gemini valgono per *progetto*: più chiavi dello stesso progetto la
+    condividono. Non potendolo sapere in anticipo, si procede così (come il controllo di
+    congestione di TCP): a ogni episodio di "quota al minuto superata" il ritmo scende al 90%
+    delle richieste effettivamente riuscite nell'ultimo minuto; dopo ogni serie di richieste
+    riuscite risale del 10%, senza superare il massimo teorico (chiavi x ritmo per chiave).
+    """
+
+    INCREASE_EVERY = 20
+
+    def __init__(self, ceiling_rpm: float, start_rpm: float | None):
+        self.ceiling = ceiling_rpm
+        self.rpm = min(start_rpm, ceiling_rpm) if start_rpm else ceiling_rpm
+        self.next_slot_at = 0.0
+        self.paused_until = 0.0
+        self._successes = 0
+        self._recent: list[float] = []
+        self._episode_until = 0.0
+
+    @property
+    def interval(self) -> float:
+        return 60.0 / self.rpm
+
+    def reserve(self, now: float) -> float:
+        """Prenota un posto; restituisce l'istante in cui la richiesta può partire."""
+        start = max(now, self.next_slot_at, self.paused_until)
+        self.next_slot_at = start + self.interval
+        return start
+
+    def on_success(self, now: float) -> bool:
+        """Registra un successo; True se il ritmo è stato aumentato."""
+        self._recent = [t for t in self._recent if now - t < 60] + [now]
+        self._successes += 1
+        if self._successes >= self.INCREASE_EVERY and self.rpm < self.ceiling:
+            self._successes = 0
+            self.rpm = min(self.ceiling, self.rpm * 1.1)
+            return True
+        return False
+
+    def on_quota(self, now: float, pause: float) -> float:
+        """Registra un 429 al minuto; restituisce il nuovo ritmo.
+
+        Un solo taglio per episodio: i 429 che arrivano mentre si sta già aspettando (richieste
+        partite insieme) non abbassano ulteriormente il ritmo. Il nuovo ritmo è il 90% delle
+        richieste riuscite nell'ultimo minuto, cioè una stima diretta del limite reale.
+        """
+        if now >= self._episode_until:
+            observed = len([t for t in self._recent if now - t < 60])
+            target = 0.9 * observed if observed >= 2 else 0.7 * self.rpm
+            self.rpm = max(1.0, min(self.rpm, target))
+            self._successes = 0
+            self._episode_until = now + pause
+        self.paused_until = max(self.paused_until, now + pause)
+        self.next_slot_at = max(self.next_slot_at, self.paused_until)
+        return self.rpm
 
 
 # --------------------------------------------------------------------------------------
 # Client
 # --------------------------------------------------------------------------------------
+MAX_QUOTA_WAIT_SECONDS = 15 * 60
+
+
+def _default_log(message: str) -> None:
+    """Messaggi che non spezzano le barre di avanzamento nel terminale."""
+    from tqdm import tqdm
+
+    tqdm.write(message)   # oltre questa attesa continua per una richiesta ci si ferma
 class GeminiClient:
     def __init__(
         self,
@@ -232,7 +339,7 @@ class GeminiClient:
         client_factory: Callable[[str], Any] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
-        log: Callable[[str], None] = print,
+        log: Callable[[str], None] | None = None,
     ):
         if not api_keys:
             raise GeminiNotConfiguredError(
@@ -244,9 +351,13 @@ class GeminiClient:
         self._client_factory = client_factory or self._default_factory
         self._sleep = sleep
         self._clock = clock
-        self._log = log
+        self._log = log or _default_log
         self._lock = threading.Lock()
         self._interval = 60.0 / settings.requests_per_minute_per_key
+        self._limit = _AdaptiveLimit(
+            ceiling_rpm=settings.requests_per_minute_per_key * len(api_keys),
+            start_rpm=settings.max_requests_per_minute_total,
+        )
         self.usage = Usage()
 
     @classmethod
@@ -265,44 +376,55 @@ class GeminiClient:
 
     # --- gestione del pool -------------------------------------------------------
     def _acquire(self) -> _KeySlot:
-        """Prenota la prossima chiave utilizzabile, attendendo se necessario."""
-        while True:
-            with self._lock:
-                now = self._clock()
-                usable = [s for s in self._slots if not math.isinf(s.paused_until)]
-                if not usable:
-                    raise QuotaExhaustedError(
-                        "Tutte le chiavi API hanno esaurito la quota giornaliera. "
-                        "Rilancia più tardi: il lavoro riprenderà da dove si è fermato."
-                    )
-                slot = min(usable, key=lambda s: max(s.next_free_at, s.paused_until))
-                ready_at = max(slot.next_free_at, slot.paused_until, now)
-                slot.next_free_at = ready_at + self._interval
-                if slot.client is None:
-                    slot.client = self._client_factory(slot.key)
-            wait = ready_at - now
-            if wait > 0:
-                self._sleep(wait)
-            return slot
-
-    def _pause(self, slot: _KeySlot, daily: bool) -> None:
+        """Prenota la prossima chiave utilizzabile e un posto nel ritmo complessivo, poi attende."""
         with self._lock:
-            if daily:
-                slot.paused_until = math.inf
-            else:
-                slot.paused_until = self._clock() + self.settings.quota_cooldown_seconds
+            now = self._clock()
+            usable = [s for s in self._slots if not math.isinf(s.paused_until)]
+            if not usable:
+                raise QuotaExhaustedError(
+                    "Tutte le chiavi API hanno esaurito la quota giornaliera. "
+                    "Rilancia più tardi (di solito la quota si azzera a mezzanotte, ora del Pacifico): "
+                    "il lavoro riprenderà da dove si è fermato."
+                )
+            slot = min(usable, key=lambda s: max(s.next_free_at, s.paused_until))
+            key_ready = max(slot.next_free_at, slot.paused_until, now)
+            start = self._limit.reserve(key_ready)
+            slot.next_free_at = start + self._interval
+            if slot.client is None:
+                slot.client = self._client_factory(slot.key)
+        wait = start - now
+        if wait > 0:
+            self._sleep(wait)
+        return slot
+
+    def _on_quota_error(self, slot: _KeySlot, failure: _APIFailure) -> None:
+        with self._lock:
+            now = self._clock()
+            if failure.is_daily_quota:
+                if not math.isinf(slot.paused_until):
+                    slot.paused_until = math.inf
+                    remaining = sum(1 for s in self._slots if not math.isinf(s.paused_until))
+                    self._log(f"[chiave {slot.index}] quota giornaliera esaurita: chiave esclusa "
+                              f"(ne restano {remaining}).")
+                return
+            pause = failure.retry_delay or self.settings.quota_cooldown_seconds
+            slot.paused_until = max(slot.paused_until, now + pause)
+            before = self._limit.rpm
+            after = self._limit.on_quota(now, pause)
+            if after < before - 0.01:
+                self._log(f"Quota al minuto raggiunta: rallento a circa {after:.0f} richieste/minuto "
+                          f"in totale e attendo {pause:.0f}s.")
 
     def _call(self, action: Callable[[Any], Any]) -> Any:
-        """Esegue ``action(client_sdk)`` con rotazione chiavi e tentativi."""
+        """Esegue ``action(client_sdk)`` con rotazione delle chiavi, ritmo adattivo e tentativi."""
         last: _APIFailure | None = None
-        errors = 0                                   # errori temporanei (contano come tentativi)
-        quota_hits = 0                               # 429: si cambia chiave, non è colpa della richiesta
-        max_quota_hits = max(20, 4 * len(self._slots))
+        errors = 0                      # errori temporanei (contano come tentativi)
+        quota_since: float | None = None
 
-        while errors < self.settings.max_retries and quota_hits < max_quota_hits:
+        while errors < self.settings.max_retries:
             slot = self._acquire()
             try:
-                return action(slot.client)
+                result = action(slot.client)
             except Exception as exc:
                 failure = _classify(exc)
                 if failure is None:
@@ -310,11 +432,15 @@ class GeminiClient:
                 last = failure
 
                 if failure.status == 429:
-                    quota_hits += 1
-                    daily = _is_daily_quota(failure.message)
-                    self._pause(slot, daily)
-                    what = "quota giornaliera esaurita" if daily else "quota al minuto superata"
-                    self._log(f"[chiave {slot.index}] {what}, passo a un'altra chiave.")
+                    # Non è colpa della richiesta: si aspetta e si riprova, senza consumare tentativi.
+                    self._on_quota_error(slot, failure)
+                    now = self._clock()
+                    quota_since = quota_since if quota_since is not None else now
+                    if now - quota_since > MAX_QUOTA_WAIT_SECONDS:
+                        raise QuotaExhaustedError(
+                            f"Quota esaurita da oltre {MAX_QUOTA_WAIT_SECONDS // 60} minuti. Rilancia più "
+                            "tardi: il lavoro riprenderà da dove si è fermato."
+                        ) from exc
                     continue
 
                 if failure.status is None or failure.status in RETRYABLE_STATUS:
@@ -325,6 +451,11 @@ class GeminiClient:
                     continue
 
                 raise GeminiError(f"Gemini ha rifiutato la richiesta ({failure}).") from exc
+            else:
+                with self._lock:
+                    if self._limit.on_success(self._clock()):
+                        pass  # aumento silenzioso: si segnalano solo i rallentamenti
+                return result
 
         raise GeminiError(f"Richiesta fallita dopo ripetuti tentativi: {last}")
 

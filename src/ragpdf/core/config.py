@@ -44,9 +44,14 @@ class GeminiSettings(_Section):
     requests_per_minute_per_key: float = Field(
         10, gt=0, description="Ritmo massimo di richieste per ciascuna chiave API."
     )
+    max_requests_per_minute_total: float | None = Field(
+        None,
+        gt=0,
+        description="Ritmo massimo complessivo (tutte le chiavi). Vuoto = adattato automaticamente.",
+    )
     max_retries: int = Field(6, ge=1, description="Tentativi per singola richiesta.")
     quota_cooldown_seconds: int = Field(
-        60, ge=1, description="Pausa di una chiave dopo un errore di quota al minuto (429)."
+        60, ge=1, description="Pausa dopo una quota al minuto superata, se Google non indica l'attesa."
     )
 
 

@@ -14,8 +14,11 @@ gemini:
   thinking_level:                  # minimal | low | medium | high: meno = più veloce ed economico
                                    # (vuoto = default del modello; se il modello non lo supporta, lascialo vuoto)
   requests_per_minute_per_key: 10  # ritmo massimo per ciascuna chiave API
+  max_requests_per_minute_total:   # ritmo massimo complessivo; vuoto = si adatta da solo alle quote
+                                   # (le quote valgono per PROGETTO Google: chiavi dello stesso
+                                   #  progetto le condividono)
   max_retries: 6                   # tentativi per richiesta (errori temporanei, quote)
-  quota_cooldown_seconds: 60       # pausa di una chiave dopo un errore di quota
+  quota_cooldown_seconds: 60       # attesa dopo una quota superata, se Google non la indica
 
 render:
   dpi: 200                         # più alto = testo piccolo più leggibile, file più grandi

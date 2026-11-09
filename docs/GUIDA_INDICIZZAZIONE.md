@@ -47,10 +47,18 @@ ragpdf doctor --online
 > l'ambiente con `.venv\Scripts\Activate.ps1`.
 
 > **Quote e chiavi.** I limiti di Gemini (richieste al minuto e al giorno) valgono per
-> **progetto** Google Cloud, non per singola chiave. Più chiavi aumentano davvero la
-> capacità solo se appartengono a progetti diversi. Il programma rispetta comunque il
-> ritmo impostato e, se una chiave esaurisce la quota, passa alle altre o si ferma in modo
-> ordinato: rilanciando, riparte da dove era.
+> **progetto** Google Cloud, non per singola chiave: più chiavi aumentano davvero la
+> capacità solo se appartengono a progetti diversi. Il programma se ne accorge da solo:
+> - **quota al minuto superata** → rallenta il ritmo complessivo fino a quello che il
+>   progetto sopporta e aspetta il tempo indicato da Google (un messaggio
+>   "rallento a circa N richieste/minuto"); poi risale piano piano;
+> - **quota giornaliera esaurita** → la chiave viene esclusa; quando lo sono tutte il lavoro
+>   si ferma in modo ordinato.
+>
+> In entrambi i casi le pagine **non** vengono segnate come fallite: rilanciando lo stesso
+> comando si riparte da dove ci si era fermati. Se conosci il limite del tuo progetto puoi
+> indicarlo in `configs\default.yaml` (`gemini.max_requests_per_minute_total`) per evitare
+> del tutto gli errori di quota.
 
 ---
 
@@ -275,6 +283,7 @@ output:
 |---|---|---|
 | `gemini.model` | `gemini-3.6-flash` | se `doctor --online` segnala un modello non disponibile |
 | `gemini.requests_per_minute_per_key` | 10 | in base ai limiti del tuo piano |
+| `gemini.max_requests_per_minute_total` | (vuoto: adattivo) | il limite al minuto del tuo progetto, se lo conosci |
 | `gemini.media_resolution` | (vuoto) | `high` se Gemini legge male testi minuscoli |
 | `gemini.thinking_level` | (vuoto) | `low` per estrazioni più veloci ed economiche; verifica con `compare` che la qualità regga |
 | `render.dpi` | 200 | 250-300 per testo molto piccolo (immagini più pesanti) |
@@ -299,6 +308,7 @@ confronta i risultati con `ragpdf compare`.
 |---|---|
 | `Nessuna chiave API Gemini` | Crea `.env` da `.env.example` e inserisci almeno una chiave |
 | `quota giornaliera esaurita` | Aspetta il reset della quota (o usa chiavi di altri progetti) e rilancia: riprende da dove era |
+| Molti messaggi "rallento a circa N richieste/minuto" | Normale con chiavi dello stesso progetto; per evitarli imposta `gemini.max_requests_per_minute_total` al limite del progetto |
 | Troppe pagine di fila fallite | Problema generale (nome del modello, chiave non valida): `ragpdf doctor --online` |
 | `la risposta ha superato la lunghezza massima` | Pagina con moltissime righe: riduci le colonne o rendi le istruzioni più selettive |
 | Il CSV ha righe inventate o mancanti | Riprendi `ragpdf setup` e descrivi l'errore; oppure rendi più precise `row`, `description`, `instructions` |

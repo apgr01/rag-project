@@ -22,9 +22,18 @@ class FakeClock:
         self.now += seconds
 
 
-def quota_error(daily: bool):
-    limit = "GenerateRequestsPerDayPerProjectPerModel" if daily else "GenerateRequestsPerMinutePerProject"
-    return errors.ClientError(429, {"error": {"code": 429, "message": f"Quota exceeded, limit: {limit}"}})
+def quota_error(daily: bool, retry: str | None = "30s"):
+    """429 come lo restituisce Google: il tipo di quota è solo nei dettagli, non nel messaggio."""
+    quota_id = ("GenerateRequestsPerDayPerProjectPerModel-FreeTier" if daily
+                else "GenerateRequestsPerMinutePerProjectPerModel-FreeTier")
+    details = [{"@type": "type.googleapis.com/google.rpc.QuotaFailure",
+                "violations": [{"quotaId": quota_id, "quotaValue": "10"}]}]
+    if retry:
+        details.append({"@type": "type.googleapis.com/google.rpc.RetryInfo", "retryDelay": retry})
+    message = ("You exceeded your current quota. * Quota exceeded for metric: "
+               "generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 10")
+    return errors.ClientError(429, {"error": {"code": 429, "message": message, "status": "RESOURCE_EXHAUSTED",
+                                              "details": details}})
 
 
 def make_client(keys, settings=None):
@@ -53,7 +62,9 @@ def test_rate_limit_is_per_key_and_shared():
     client, clock = make_client(["k1", "k2"], GeminiSettings(requests_per_minute_per_key=30))
     used = [client._call(lambda c: c) for _ in range(4)]
     assert used == ["k1", "k2", "k1", "k2"]
-    assert clock.sleeps == [2.0]  # la terza richiesta attende che k1 torni libera (60/30 s)
+    # ritmo complessivo massimo = 2 chiavi x 30/min = 60/min: una richiesta al secondo,
+    # e ogni chiave non più di una ogni 2 secondi
+    assert clock.sleeps == [1.0, 1.0, 1.0]
 
 
 def test_minute_quota_rotates_key():
@@ -68,7 +79,7 @@ def test_minute_quota_rotates_key():
 
     assert client._call(action) == "ok"
     assert calls == ["k1", "k2"]
-    assert client._slots[0].paused_until == pytest.approx(60.0)
+    assert client._slots[0].paused_until == pytest.approx(30.0)   # retryDelay indicato da Google
 
 
 def test_daily_quota_excludes_key_and_finally_raises():
@@ -220,3 +231,74 @@ def test_usage_is_accumulated():
     u = client.usage
     assert (u.requests, u.input_tokens, u.output_tokens) == (2, 2000, 500)
     assert "2 richieste" in u.describe() and "2.000" in u.describe()
+
+
+def test_daily_quota_recognized_from_details_only():
+    """Il messaggio non dice 'giornaliera': lo dicono solo i dettagli (quotaId)."""
+    client, _ = make_client(["k1", "k2"])
+    calls = []
+
+    def action(key):
+        calls.append(key)
+        if key == "k1":
+            raise quota_error(daily=True)
+        return "ok"
+
+    assert client._call(action) == "ok"
+    assert math.isinf(client._slots[0].paused_until)
+    assert client._call(lambda k: k) == "k2"            # k1 non viene più usata
+
+
+def test_shared_project_quota_slows_down_instead_of_failing():
+    """Il caso del log: 10 chiavi dello stesso progetto, limite reale 10 richieste/minuto.
+
+    Le richieste non devono fallire: il ritmo complessivo scende e si aspetta il retryDelay.
+    """
+    logs = []
+    clock = FakeClock()
+    client = GeminiClient([f"k{i}" for i in range(10)], GeminiSettings(requests_per_minute_per_key=10),
+                          client_factory=lambda k: k, sleep=clock.sleep, clock=clock.clock, log=logs.append)
+    window: list[float] = []
+
+    def action(key):
+        # il "progetto" accetta al massimo 10 richieste in 60 secondi
+        recent = [t for t in window if clock.now - t < 60]
+        if len(recent) >= 10:
+            raise quota_error(daily=False, retry="20s")
+        window.append(clock.now)
+        return "ok"
+
+    results = [client._call(action) for _ in range(40)]
+    assert results == ["ok"] * 40
+    assert client._limit.rpm < 20                      # partito da 100/min, si è adattato
+    slowdowns = [m for m in logs if "rallento" in m]
+    assert 1 <= len(slowdowns) <= 8                    # pochi messaggi, non uno per errore
+    assert not any("passo a un'altra chiave" in m for m in logs)
+
+
+def test_quota_that_never_resets_stops_cleanly():
+    client, clock = make_client(["k1", "k2"])
+
+    def action(key):
+        raise quota_error(daily=False, retry="60s")
+
+    with pytest.raises(QuotaExhaustedError, match="oltre 15 minuti"):
+        client._call(action)
+
+
+def test_configured_total_limit():
+    clock = FakeClock()
+    client = GeminiClient(["a", "b", "c"], GeminiSettings(requests_per_minute_per_key=10,
+                                                          max_requests_per_minute_total=6),
+                          client_factory=lambda k: k, sleep=clock.sleep, clock=clock.clock, log=lambda m: None)
+    for _ in range(3):
+        client._call(lambda k: k)
+    assert clock.sleeps == [10.0, 10.0]                # 6/min in totale = una ogni 10 s
+
+
+def test_retry_delay_from_message_when_details_missing():
+    from ragpdf.core.gemini import _classify
+
+    exc = errors.ClientError(429, {"error": {"code": 429, "message": "Quota exceeded. Please retry in 12.5s."}})
+    failure = _classify(exc)
+    assert failure.retry_delay == 12.5 and not failure.is_daily_quota
