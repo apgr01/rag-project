@@ -1,6 +1,8 @@
 Ho un sistema che passa a un'AI le pagine di un PDF sotto forma di immagini, UNA pagina alla volta, SENZA vedere le altre pagine né l'indice generale, e le chiede di interpretarne il contenuto. Ha quindi bisogno di un contesto scritto a parte che spieghi com'è fatto il documento nel complesso, prima di interpretare la pagina singola.
 
-Ti allego il documento PDF completo. Il tuo compito è analizzarlo e scrivere questo contesto, che chiamo "primer", e che verrà dato all'AI insieme a ogni singola immagine di pagina.
+Ti allego il documento PDF. Il tuo compito è analizzarlo e scrivere questo contesto, che chiamo "primer", e che verrà dato all'AI insieme a ogni singola immagine di pagina.
+
+{{pages_note}}
 
 Guarda il documento con mente aperta: non presumere che si tratti di un tipo di documento specifico (catalogo, manuale, report, ...) finché non lo capisci da quello che vedi. Descrivi quello che c'è realmente, con parole tue.
 

@@ -94,7 +94,8 @@ def _ensure_primer(app: App, doc: Document, assume_yes: bool) -> str | None:
     return None
 
 
-def _generate_primer(app: App, doc: Document, name: str | None, force: bool) -> str | None:
+def _generate_primer(app: App, doc: Document, name: str | None, force: bool, pages: str | None = None) -> str | None:
+    from ragpdf.core.render import parse_page_ranges
     from ragpdf.primer import generate_primer
 
     name = name or doc.id
@@ -105,13 +106,15 @@ def _generate_primer(app: App, doc: Document, name: str | None, force: bool) -> 
             app.assign_primer(doc, name)
             return name
 
+    selected = parse_page_ranges(pages, doc.info.page_count) if pages else None
     ui.info(f"Genero la bozza del primer per '{doc.id}' (può richiedere qualche minuto)...")
-    text, strategy = generate_primer(doc, app.client())
+    text, what = generate_primer(doc, app.client(), selected)
     path.write_text(text, encoding="utf-8")
     app.assign_primer(doc, name)
-    ui.ok(f"Bozza del primer salvata ({strategy}): {path}")
+    ui.ok(f"Bozza del primer salvata (Gemini ha ricevuto: {what}): {path}")
     ui.hint("Rileggila e correggila: la qualità del primer incide direttamente sui risultati.")
     ui.hint("Controlla soprattutto la sezione 'Punti da verificare', se presente.")
+    ui.hint(f"Per una revisione guidata con anteprima dei risultati: ragpdf setup {doc.id}")
     return name
 
 
@@ -283,7 +286,7 @@ def cmd_primer_list(app: App, args: argparse.Namespace) -> int:
 
 def cmd_primer_generate(app: App, args: argparse.Namespace) -> int:
     doc = app.documents.get(args.doc)
-    return 0 if _generate_primer(app, doc, args.name, args.force) else 1
+    return 0 if _generate_primer(app, doc, args.name, args.force, args.pages) else 1
 
 
 def cmd_primer_set(app: App, args: argparse.Namespace) -> int:
@@ -639,6 +642,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("doc")
     p.add_argument("--name", help="nome del primer (default: id del documento)")
     p.add_argument("--force", action="store_true", help="sovrascrivi un primer con lo stesso nome")
+    p.add_argument("--pages", help="pagine da mostrare a Gemini, es. '1,4,10-14,102' (default: automatico)")
     p.set_defaults(func=cmd_primer_generate)
     p = psub.add_parser("set", help="associa un primer (nome o file .md) a un documento")
     p.add_argument("doc")

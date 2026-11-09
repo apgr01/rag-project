@@ -69,3 +69,9 @@ def test_compare_command(run, pdf_factory, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Copertura: 100.0%" in out          # la riga a pagina 9 è esclusa (non elaborata)
     assert (tmp_path / "data" / "exports" / "s" / "cat_confronto.csv").exists()
+
+
+def test_primer_generate_with_selected_pages(run, pdf_factory, tmp_path):
+    run("add", str(pdf_factory("Grande.pdf", pages=12)), "--no-primer")
+    assert run("primer", "generate", "grande", "--pages", "1,4,10-11") == 0
+    assert (tmp_path / "data" / "primers" / "grande.md").exists()

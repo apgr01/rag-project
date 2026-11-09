@@ -58,3 +58,16 @@ def test_not_a_pdf(store, tmp_path):
     txt.write_text("ciao")
     with pytest.raises(DocumentError, match="non è un PDF"):
         store.add(txt)
+
+
+def test_primer_page_choice(store, pdf_factory):
+    from ragpdf.primer import MAX_SELECTED_PAGES, choose_pages, sample_pages
+
+    small = store.add(pdf_factory("piccolo.pdf", pages=5))
+    assert choose_pages(small, None)[0] is None                    # PDF intero
+    assert choose_pages(small, [1, 3]) == ([1, 3], "estratto di 2 pagine scelte")
+    big = store.add(pdf_factory("grande.pdf", pages=100, prefix="G"))
+    auto, what = choose_pages(big, None)
+    assert auto == sample_pages(100) and "automatico" in what and auto[:8] == list(range(1, 9))
+    with pytest.raises(ValueError, match="massimo"):
+        choose_pages(big, list(range(1, MAX_SELECTED_PAGES + 2)))
