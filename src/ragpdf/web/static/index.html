@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ragpdf — Indicizzazione cataloghi</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/" class="brand">ragpdf</a>
+    <span class="brand-sub">indicizzazione di cataloghi PDF con Gemini</span>
+    <span id="status" class="status"></span>
+  </header>
+
+  <main id="view" aria-live="polite"></main>
+
+  <!-- Conferma per le azioni importanti (invii a Gemini, sovrascritture, eliminazioni) -->
+  <dialog id="confirm-dialog">
+    <form method="dialog">
+      <h3 id="confirm-title"></h3>
+      <div id="confirm-body"></div>
+      <div class="actions">
+        <button value="cancel" class="secondary" type="submit">Annulla</button>
+        <button value="ok" id="confirm-ok" type="submit">Conferma</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Testo lungo in sola lettura (es. il prompt che verrà inviato) -->
+  <dialog id="text-dialog" class="wide">
+    <form method="dialog">
+      <h3 id="text-title"></h3>
+      <p id="text-note" class="muted"></p>
+      <pre id="text-body"></pre>
+      <div class="actions"><button value="close" type="submit">Chiudi</button></div>
+    </form>
+  </dialog>
+
+  <!-- Immagine di una pagina -->
+  <dialog id="image-dialog" class="wide">
+    <form method="dialog">
+      <h3 id="image-title"></h3>
+      <img id="image-body" alt="">
+      <div class="actions"><button value="close" type="submit">Chiudi</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" role="status"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

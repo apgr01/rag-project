@@ -16,6 +16,9 @@ dependencies = [
     "pyyaml>=6.0",         # lettura configs/*.yaml
     "python-dotenv>=1.0",  # caricamento chiavi API da .env
     "tqdm>=4.66",          # barre di avanzamento
+    "fastapi>=0.110",      # interfaccia grafica: server locale
+    "uvicorn>=0.29",       # interfaccia grafica: server HTTP
+    "python-multipart>=0.0.9",  # interfaccia grafica: caricamento dei file
 ]
 
 [project.optional-dependencies]
@@ -35,9 +38,16 @@ ragpdf = "ragpdf.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+ragpdf = ["web/static/*"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# In FastAPI File(...) e Body(...) come valori di default sono l'uso previsto.
+extend-immutable-calls = ["fastapi.File", "fastapi.Body"]

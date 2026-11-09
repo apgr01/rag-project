@@ -662,6 +662,13 @@ def cmd_rag_ask(app: App, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ui(app: App, args: argparse.Namespace) -> int:
+    from ragpdf.web.server import serve
+
+    serve(app, port=args.port, open_browser=not args.no_browser)
+    return 0
+
+
 def _cmd_setup(app: App, args: argparse.Namespace) -> int:
     from ragpdf.cli_setup import cmd_setup
 
@@ -691,6 +698,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--primer", help="primer da associare (nome di un primer esistente)")
     p.add_argument("--no-primer", action="store_true", help="non chiedere nulla sul primer ora")
     p.set_defaults(func=cmd_add)
+
+    p = sub.add_parser("ui", help="INTERFACCIA GRAFICA nel browser (consigliata)")
+    p.add_argument("--port", type=int, default=8765, help="porta del server locale (default 8765)")
+    p.add_argument("--no-browser", action="store_true", help="non aprire il browser automaticamente")
+    p.set_defaults(func=cmd_ui)
 
     p = sub.add_parser(
         "setup",
