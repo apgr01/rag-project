@@ -358,17 +358,20 @@ class SetupSession:
         if partial.exists():
             shutil.rmtree(partial)
 
-    def start(self) -> int:
-        """Primo giro: Gemini analizza le pagine scelte e scrive primer e specifica."""
+    def build_initial_prompt(self) -> str:
+        """Il prompt del primo giro, esattamente come verrebbe inviato (senza inviarlo)."""
         template = (EXAMPLES_DIR / "specs" / "base.yaml").read_text(encoding="utf-8")
-        prompt = render_prompt(
+        return render_prompt(
             load_prompt("setup_initial"),
             pages_note=self._pages_note(),
             goal=self._goal_text(),
             example=self._example_block(),
             spec_template=template.strip(),
         )
-        return self._generate(prompt, feedback="", origin="iniziale")
+
+    def start(self) -> int:
+        """Primo giro: Gemini analizza le pagine scelte e scrive primer e specifica."""
+        return self._generate(self.build_initial_prompt(), feedback="", origin="iniziale")
 
     def start_from_existing(self, primer_name: str, spec_name: str) -> int:
         """Primo giro a partire da primer e specifica già esistenti (catalogo dello stesso tipo)."""
@@ -391,11 +394,9 @@ class SetupSession:
             self._discard_partial_round()
             raise SetupError(f"La specifica '{spec_name}' non è valida:\n{e}") from e
 
-    def revise(self, feedback: str) -> int:
-        """Nuovo giro: Gemini applica le osservazioni dell'utente."""
-        if not feedback.strip():
-            raise SetupError("Scrivi cosa vuoi cambiare.")
-        prompt = render_prompt(
+    def build_revise_prompt(self, feedback: str) -> str:
+        """Il prompt di revisione, esattamente come verrebbe inviato (senza inviarlo)."""
+        return render_prompt(
             load_prompt("setup_revise"),
             pages_note=self._pages_note(),
             goal=self._goal_text(),
@@ -406,7 +407,12 @@ class SetupSession:
             history=self._history_block(),
             feedback=feedback.strip(),
         )
-        return self._generate(prompt, feedback=feedback.strip(), origin="revisione")
+
+    def revise(self, feedback: str) -> int:
+        """Nuovo giro: Gemini applica le osservazioni dell'utente."""
+        if not feedback.strip():
+            raise SetupError("Scrivi cosa vuoi cambiare.")
+        return self._generate(self.build_revise_prompt(feedback), feedback=feedback.strip(), origin="revisione")
 
     def manual_edit_done(self, primer_text: str | None = None, spec_text: str | None = None) -> int:
         """Registra una modifica fatta a mano come nuovo giro (dopo averla validata)."""
@@ -423,6 +429,24 @@ class SetupSession:
         except SpecError:
             self._discard_partial_round()
             raise
+
+    def rounds(self) -> list[dict[str, Any]]:
+        """Elenco delle versioni salvate su disco, dalla prima all'ultima."""
+        result = []
+        for n in range(1, self.state.last_round + 1):
+            notes = self.round_notes(n)
+            if notes:
+                result.append({k: notes.get(k) for k in ("round", "origin", "feedback", "summary", "created_at")})
+        return result
+
+    def go_to(self, n: int) -> int:
+        """Rende corrente una versione qualsiasi (le altre restano su disco)."""
+        if not (self.round_dir(n) / "round.json").exists():
+            raise SetupError(f"La versione {n} non esiste.")
+        self.state.current_round = n
+        self.state.history.append({"round": n, "feedback": "", "origin": "ripristino"})
+        self.save_state()
+        return n
 
     def go_back(self) -> int:
         """Torna alla versione precedente (la successiva resta su disco)."""
@@ -537,6 +561,7 @@ class SetupSession:
             ][:MAX_ANOMALIES_IN_PROMPT],
         }
         info["fingerprint"] = self.app.extractor().fingerprint(self.load_spec(), self.primer_text())
+        info["comparison_note"] = preview.comparison_note
         if preview.comparison is not None:
             c = preview.comparison
             info["comparison"] = {

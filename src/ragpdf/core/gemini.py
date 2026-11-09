@@ -169,6 +169,8 @@ class Usage:
     def describe(self) -> str:
         if not self.requests:
             return "nessuna richiesta a Gemini"
+        if not (self.input_tokens or self.output_tokens):
+            return f"{self.requests} richieste a Gemini"
         per = (self.input_tokens + self.output_tokens) // self.requests
         return (
             f"{self.requests} richieste a Gemini, token: {self.input_tokens:,} in ingresso + "
