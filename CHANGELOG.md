@@ -47,7 +47,7 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   (id leggibile e impronta SHA-256 per riconoscere i duplicati).
 - Client Gemini con pool di chiavi, ritmo per chiave condiviso tra i thread, gestione
   degli errori per codice HTTP, arresto ordinato a quote esaurite.
-- Client Gemini simulato (`RAGPDF_FAKE_GEMINI=1`) e 132 test automatici senza rete.
+- Client Gemini simulato (`RAGPDF_FAKE_GEMINI=1`) e 133 test automatici senza rete.
 - Specifiche d'esempio (`examples/specs/`) e guida passo passo
   (`docs/GUIDA_INDICIZZAZIONE.md`), documento di architettura (`docs/ARCHITETTURA.md`).
 - `pyproject.toml`, roadmap, changelog.
