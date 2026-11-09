@@ -37,6 +37,10 @@ class GeminiSettings(_Section):
         None,
         description="Dettaglio con cui Gemini guarda immagini e PDF. Vuoto = default del modello.",
     )
+    thinking_level: Literal["minimal", "low", "medium", "high"] | None = Field(
+        None,
+        description="Quanto il modello 'ragiona' prima di rispondere. Vuoto = default del modello.",
+    )
     requests_per_minute_per_key: float = Field(
         10, gt=0, description="Ritmo massimo di richieste per ciascuna chiave API."
     )

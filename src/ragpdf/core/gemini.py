@@ -347,6 +347,10 @@ class GeminiClient:
             extra.setdefault(
                 "media_resolution", f"MEDIA_RESOLUTION_{self.settings.media_resolution.upper()}"
             )
+        if self.settings.thinking_level:
+            extra.setdefault(
+                "thinking_config", types.ThinkingConfig(thinking_level=self.settings.thinking_level.upper())
+            )
         return types.GenerateContentConfig(temperature=self.settings.temperature, **extra)
 
     def _wait_until_active(self, client: Any, uploaded: Any, timeout: float = 180) -> Any:

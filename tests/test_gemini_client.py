@@ -157,15 +157,18 @@ def test_small_pdf_is_sent_inline(tmp_path):
         def generate_content(self, model, contents, config):
             seen["contents"] = contents
             seen["model"] = model
+            seen["config"] = config
             return NS(text='{"ok": true}')
 
     sdk = NS(files=None, models=Models())
     clock = FakeClock()
-    client = GeminiClient(["k"], GeminiSettings(model="vision-m", text_model="text-m", media_resolution="high"),
+    client = GeminiClient(["k"], GeminiSettings(model="vision-m", text_model="text-m", media_resolution="high",
+                                                thinking_level="low"),
                           client_factory=lambda k: sdk, log=lambda m: None, sleep=clock.sleep, clock=clock.clock)
     pdf = tmp_path / "a.pdf"
     pdf.write_bytes(b"%PDF-1.4 piccolo")
     assert client.generate_json("p", {"type": "object"}, pdf=pdf) == {"ok": True}
+    assert seen["config"].thinking_config.thinking_level.value == "LOW"
     part = seen["contents"][0]
     assert part.inline_data.mime_type == "application/pdf" and seen["model"] == "vision-m"
     assert client.generate_text("ciao") is not None and seen["model"] == "text-m"

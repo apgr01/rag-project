@@ -11,6 +11,8 @@ gemini:
   text_model: gemini-3.6-flash     # risposte testuali e generazione del primer
   temperature: 0.1                 # bassa = risposte più fedeli e ripetibili
   media_resolution:                # low | medium | high (vuoto = default del modello)
+  thinking_level:                  # minimal | low | medium | high: meno = più veloce ed economico
+                                   # (vuoto = default del modello; se il modello non lo supporta, lascialo vuoto)
   requests_per_minute_per_key: 10  # ritmo massimo per ciascuna chiave API
   max_retries: 6                   # tentativi per richiesta (errori temporanei, quote)
   quota_cooldown_seconds: 60       # pausa di una chiave dopo un errore di quota

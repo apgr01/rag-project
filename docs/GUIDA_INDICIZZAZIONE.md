@@ -274,6 +274,7 @@ output:
 | `gemini.model` | `gemini-3.6-flash` | se `doctor --online` segnala un modello non disponibile |
 | `gemini.requests_per_minute_per_key` | 10 | in base ai limiti del tuo piano |
 | `gemini.media_resolution` | (vuoto) | `high` se Gemini legge male testi minuscoli |
+| `gemini.thinking_level` | (vuoto) | `low` per estrazioni più veloci ed economiche; verifica con `compare` che la qualità regga |
 | `render.dpi` | 200 | 250-300 per testo molto piccolo (immagini più pesanti) |
 | `indexing.input` | `image+text` | `image` per PDF con testo estratto inaffidabile, `pdf` da provare in alternativa |
 
