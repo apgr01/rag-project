@@ -65,5 +65,6 @@ def test_example_csv_in_prompt(tmp_path):
 def test_context_columns_are_not_repeated_in_rows():
     spec = load_spec(EXAMPLES / "finimpianti-fin-oem.yaml")
     prompt = PromptBuilder(spec, "", 10).page_prompt(1)
-    assert "lascialo \"\" se è uguale a page_context" in prompt
+    assert prompt.count("DATO DI PAGINA") == 7      # 6 colonne + la regola, spiegata una volta
+    assert "Nelle righe lasciale" in prompt
     assert "page_context" in build_page_schema(spec)["properties"]

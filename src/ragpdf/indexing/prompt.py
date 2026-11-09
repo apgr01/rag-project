@@ -41,10 +41,7 @@ def _describe_column(col: ColumnSpec, key: str) -> str:
     if col.default is not None:
         details.append(f'se assente usa "{col.default}"')
     if col.context:
-        details.append(
-            "dato di pagina (es. intestazione): riportalo in page_context; nelle righe lascialo \"\" "
-            "se è uguale a page_context, compilalo solo se per quella riga è diverso"
-        )
+        details.append("DATO DI PAGINA")
     if details:
         parts.append(f" ({'; '.join(details)})")
     return "".join(parts)
@@ -109,10 +106,10 @@ class PromptBuilder:
         )
 
         context_rule = (
-            "- In \"page_context\" riporta i valori delle colonne di contesto validi per tutta la "
-            "pagina (es. intestazione), se visibili; \"\" se non compaiono in questa pagina. Nelle righe "
-            "lascia vuote queste colonne quando il valore è quello di page_context: il sistema le "
-            "compila automaticamente (così la risposta resta breve).\n"
+            "- Colonne DATO DI PAGINA (valori validi per tutta la pagina, es. intestazione): riportane i "
+            "valori in \"page_context\" (\"\" se non compaiono in questa pagina). Nelle righe lasciale "
+            "\"\" quando il valore è quello di page_context: il sistema le compila automaticamente. "
+            "Compilale in una riga solo se per quella riga il valore è diverso.\n"
             if spec.context_columns
             else ""
         )

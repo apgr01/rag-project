@@ -11,6 +11,7 @@ Colonne (ogni riga è un oggetto JSON con queste chiavi):
 {{mappings}}{{instructions}}{{examples}}{{page_text}}
 ## REGOLE GENERALI
 - Questa è la pagina {{page_number}} di {{total_pages}} del PDF. Estrai SOLO ciò che si ricava da questa pagina, aiutandoti con il primer per interpretarla; non inventare valori.
+- Estrai TUTTE le righe presenti nella pagina, nell'ordine di lettura: non riassumere, non fermarti alle prime, non accorpare righe diverse.
 - Trascrivi codici e numeri esattamente come appaiono (stessi caratteri, spazi e punteggiatura).
 - Se un valore non è presente o non è leggibile usa una stringa vuota "", salvo diverse istruzioni dell'utente.
 - Se la pagina non contiene righe da estrarre (copertina, indice, legenda, pagina vuota, ...) restituisci "rows": [].
