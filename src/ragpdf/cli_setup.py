@@ -1,4 +1,4 @@
-"""Interfaccia della sessione guidata: ``ragpdf setup <documento>``.
+"""Interfaccia della sessione guidata: ``ragpdf setup <progetto | documento | file.pdf>``.
 
 Qui c'è solo il dialogo con l'utente; la logica è in ``setup_session.py``.
 """
@@ -10,11 +10,19 @@ from pathlib import Path
 
 from ragpdf import ui
 from ragpdf.app import App
-from ragpdf.core.documents import Document, DocumentError, DuplicateDocumentError
+from ragpdf.core.documents import DocumentError, DuplicateDocumentError
 from ragpdf.core.gemini import GeminiError
-from ragpdf.core.render import format_pages, parse_page_ranges
+from ragpdf.core.projects import Project, ProjectError
 from ragpdf.indexing.spec import SpecError
-from ragpdf.setup_session import Preview, SetupError, SetupSession, default_context_pages
+from ragpdf.setup_session import (
+    PageRef,
+    Preview,
+    SetupError,
+    SetupSession,
+    default_context_refs,
+    format_page_refs,
+    parse_page_refs,
+)
 
 HELP = """
 Comandi disponibili (oppure scrivi direttamente, a parole, cosa correggere):
@@ -36,7 +44,8 @@ PAGES_EXPLANATION = """Scegli le pagine che servono a CAPIRE il documento (non s
   - indice o elenco delle sezioni;
   - legende, "come leggere il catalogo", tabelle di sigle;
   - 2-3 pagine tipo per ogni layout diverso (es. le due pagine di una scheda prodotto).
-Formato: 1,4,10-14,102,105   (massimo 40 pagine)"""
+Formato: 1,4,10-14,102,105   (massimo 40 pagine)
+Con più PDF nel progetto: kubota: 1-4, 12; lombardini: 3   (basta una parte del nome)"""
 
 
 def _clean_path(text: str) -> str:
@@ -44,16 +53,16 @@ def _clean_path(text: str) -> str:
     return text.strip().strip('"').strip("'").strip()
 
 
-def _ask_pages(question: str, default: list[int], total: int) -> list[int]:
+def _ask_pages(question: str, default: list[PageRef], docs) -> list[PageRef]:
     while True:
-        answer = ui.ask_text(question, format_pages(default))
+        answer = ui.ask_text(question, format_page_refs(default, docs))
         try:
-            pages = parse_page_ranges(answer, total)
+            refs = parse_page_refs(answer, docs)
         except ValueError as e:
             ui.warn(str(e))
             continue
-        if pages:
-            return pages
+        if refs:
+            return refs
         ui.warn("Indica almeno una pagina.")
 
 
@@ -70,20 +79,34 @@ def _ask_feedback_in_editor(session: SetupSession) -> str:
     return "\n".join(lines).strip()
 
 
-def _resolve_document(app: App, ref: str) -> Document:
+def _resolve_project(app: App, ref: str) -> Project:
+    """Progetto indicato per nome, per documento contenuto, oppure creato da un file PDF."""
     path = Path(_clean_path(ref))
     if path.suffix.lower() == ".pdf" and path.is_file():
         try:
-            doc = app.documents.add(path)
+            doc = app.add_document(path)
             ui.ok(f"Documento aggiunto come '{doc.id}' ({doc.info.page_count} pagine).")
             from ragpdf.cli import _warn_if_scanned
 
             _warn_if_scanned(doc)
-            return doc
+            ref = doc.id
         except DuplicateDocumentError as e:
             ui.info(f"Il PDF è già nel workspace: uso '{e.existing.id}'.")
-            return app.documents.get(e.existing.id)
-    return app.documents.get(ref)
+            ref = e.existing.id
+    project = app.projects.find(ref)
+    if project is not None:
+        return project
+    doc = app.documents.get(ref)
+    projects = app.projects.containing(doc.id)
+    if len(projects) == 1:
+        return projects[0]
+    if not projects:
+        raise ProjectError(f"Il documento '{doc.id}' non fa parte di nessun progetto.")
+    picked = ui.choose(f"'{doc.id}' fa parte di più progetti: quale configurare?",
+                       [(p.id, p.info.name) for p in projects])
+    if not picked:
+        raise ProjectError("Indica il progetto: ragpdf setup <progetto>")
+    return app.projects.get(picked)
 
 
 # --------------------------------------------------------------------------- visualizzazione
@@ -107,6 +130,12 @@ def _show_round(session: SetupSession) -> None:
     ui.info("  * = obbligatoria;  (intestazione) = dato di pagina, ereditato se la pagina non lo ripete")
     primer_lines = len(session.primer_text().splitlines())
     ui.info(f"Primer: {primer_lines} righe (leggilo con /mostra primer o /apri primer)")
+    doc_notes = session.document_notes()
+    if doc_notes:
+        titles = {d.id: d.info.title for d in session.documents}
+        ui.info("Note per singoli PDF:")
+        for doc_id, text in doc_notes.items():
+            ui.info(f"  - {titles.get(doc_id, doc_id)}: {text}")
     if spec.pages:
         ui.info(f"Pagine che verranno indicizzate: {spec.pages}")
     questions = notes.get("questions") or []
@@ -117,9 +146,9 @@ def _show_round(session: SetupSession) -> None:
 
 
 def _show_preview(session: SetupSession, preview: Preview) -> None:
-    pages = sorted(preview.rows_per_page)
-    ui.title(f"Prova di estrazione sulle pagine {format_pages(pages)}")
-    ui.info("Righe per pagina: " + ", ".join(f"p.{p}: {n}" for p, n in sorted(preview.rows_per_page.items())))
+    refs = list(preview.rows_per_page)
+    ui.title(f"Prova di estrazione sulle pagine {format_page_refs(refs, session.documents)}")
+    ui.info("Righe per pagina: " + ", ".join(f"{session.label(r)}: {n}" for r, n in preview.rows_per_page.items()))
     if preview.report.failed:
         for p, msg in preview.report.failed.items():
             ui.warn(f"Pagina {p} fallita: {msg}")
@@ -155,7 +184,7 @@ def _show_preview(session: SetupSession, preview: Preview) -> None:
 
 
 def _preview(session: SetupSession) -> None:
-    ui.info(f"\nProvo l'estrazione sulle pagine {format_pages(session.state.preview_pages)}...")
+    ui.info(f"\nProvo l'estrazione sulle pagine {format_page_refs(session.state.preview_pages, session.documents)}...")
     preview = session.run_preview(show_progress=True)
     _show_preview(session, preview)
 
@@ -165,8 +194,9 @@ def _show_saved_preview(session: SetupSession) -> bool:
     info = session.round_notes().get("preview")
     if not info or not session.preview_csv_path.exists():
         return False
-    ui.title(f"Ultima prova salvata (pagine {format_pages(info['pages'])})")
-    ui.info("Righe per pagina: " + ", ".join(f"p.{p}: {n}" for p, n in info["rows_per_page"].items()))
+    refs = [(str(d), int(p)) for d, p in info["pages"]]
+    ui.title(f"Ultima prova salvata (pagine {format_page_refs(refs, session.documents)})")
+    ui.info("Righe per pagina: " + ", ".join(f"{r['label']}: {r['rows']}" for r in info["rows_per_page"]))
     from ragpdf.indexing.spec import read_csv_rows
 
     columns, rows = read_csv_rows(session.preview_csv_path)
@@ -182,8 +212,12 @@ def _show_saved_preview(session: SetupSession) -> bool:
 
 
 # --------------------------------------------------------------------------- avvio
-def _start_new(app: App, doc: Document, args: argparse.Namespace) -> SetupSession | None:
-    ui.title(f"Configurazione guidata di '{doc.id}' ({doc.info.page_count} pagine)")
+def _start_new(app: App, project: Project, args: argparse.Namespace) -> SetupSession | None:
+    docs = app.project_documents(project)
+    if not docs:
+        raise SetupError(f"Il progetto '{project.info.name}' non contiene PDF: aggiungili con 'ragpdf project add'.")
+    pages_total = sum(d.info.page_count for d in docs)
+    ui.title(f"Configurazione guidata di '{project.info.name}' ({len(docs)} PDF, {pages_total} pagine)")
     ui.info("Gemini guarderà alcune pagine del documento e proporrà come indicizzarlo.")
     ui.info("Poi proverà l'estrazione su poche pagine e tu potrai correggere a parole,")
     ui.info("finché il risultato non ti convince.\n")
@@ -206,14 +240,15 @@ def _start_new(app: App, doc: Document, args: argparse.Namespace) -> SetupSessio
             if primer and spec:
                 start_from = (primer, spec)
 
+    if len(docs) > 1:
+        ui.info("PDF del progetto: " + ", ".join(f"{d.id} ({d.info.page_count} pag.)" for d in docs))
     if args.pages:
-        context = parse_page_ranges(args.pages, doc.info.page_count) or []
+        context = parse_page_refs(args.pages, docs)
     elif start_from:
-        context = default_context_pages(doc.info.page_count)
+        context = default_context_refs(docs)
     else:
         ui.info(PAGES_EXPLANATION)
-        context = _ask_pages("Pagine da mostrare a Gemini", default_context_pages(doc.info.page_count),
-                             doc.info.page_count)
+        context = _ask_pages("Pagine da mostrare a Gemini", default_context_refs(docs), docs)
 
     goal = args.goal or ""
     reference = _clean_path(args.reference) if args.reference else ""
@@ -235,7 +270,7 @@ def _start_new(app: App, doc: Document, args: argparse.Namespace) -> SetupSessio
     # Partendo da file esistenti si aggiornano quelli (un solo primer per tipo di catalogo),
     # salvo un nome diverso indicato con --name.
     session = SetupSession.new(
-        app, doc, context, goal="", reference_csv=Path(reference) if reference else None,
+        app, project, context, goal="", reference_csv=Path(reference) if reference else None,
         primer_name=args.name or (start_from[0] if start_from else None),
         spec_name=args.name or (start_from[1] if start_from else None),
     )
@@ -248,20 +283,21 @@ def _start_new(app: App, doc: Document, args: argparse.Namespace) -> SetupSessio
         session.start_from_existing(*start_from)
         ui.ok(f"Partenza da primer '{start_from[0]}' e specifica '{start_from[1]}'.")
     else:
-        ui.info(f"\nGemini sta analizzando {len(context)} pagine ({format_pages(context)}): "
+        ui.info(f"\nGemini sta analizzando {len(context)} pagine ({format_page_refs(context, docs)}): "
                 "di solito serve un minuto o due...")
         session.start()
     return session
 
 
-def _resume(app: App, doc: Document, args: argparse.Namespace) -> SetupSession | None:
-    existing = SetupSession.load(app, doc)
+def _resume(app: App, project: Project, args: argparse.Namespace) -> SetupSession | None:
+    existing = SetupSession.load(app, project)
     if existing is None or args.new:
         return None
     if existing.state.current_round == 0:
         return None
     status = "salvata" if existing.state.saved_at else "non salvata"
-    ui.info(f"Esiste una sessione guidata per '{doc.id}' (versione {existing.state.current_round}, {status}).")
+    ui.info(f"Esiste una sessione guidata per '{project.info.name}' "
+            f"(versione {existing.state.current_round}, {status}).")
     if ui.ask_yes_no("Vuoi riprenderla?", default=True):
         return existing
     return None
@@ -282,7 +318,7 @@ def _save(app: App, session: SetupSession) -> bool:
         existing = session.files_that_would_change()
     primer_path, spec_path = session.save()
     ui.ok(f"Primer salvato: {primer_path}")
-    ui.ok(f"Specifica salvata: {spec_path} (predefinita per '{session.doc.id}')")
+    ui.ok(f"Specifica salvata: {spec_path} (associata al progetto '{session.project.info.name}')")
     reused = session.reuse_preview()
     if reused:
         ui.info(f"Le {reused} pagine dell'ultima prova sono già contate come indicizzate (nessuna nuova richiesta).")
@@ -292,15 +328,11 @@ def _save(app: App, session: SetupSession) -> bool:
 def _offer_indexing(app: App, session: SetupSession) -> int:
     from ragpdf import cli
 
-    spec = session.load_spec()
-    ui.info(f"\nPer indicizzare tutto il documento: ragpdf index {session.doc.id}")
-    if spec.pages:
-        ui.info(f"(verranno elaborate le pagine {spec.pages}, come indicato nella specifica)")
+    ui.info(f"\nPer indicizzare tutti i PDF del progetto: ragpdf project index {session.project.id}")
     if not ui.ask_yes_no("Avviare ora l'indicizzazione completa?", default=False):
         return 0
-    ns = argparse.Namespace(docs=[session.doc.id], all=False, spec=session.state.spec_name,
-                            pages=None, force=False, yes=False)
-    return cli.cmd_index(app, ns)
+    ns = argparse.Namespace(project=session.project.id, force=False, yes=False)
+    return cli.cmd_project_index(app, ns)
 
 
 def _loop(app: App, session: SetupSession, resumed: bool = False) -> int:
@@ -328,22 +360,22 @@ def _loop(app: App, session: SetupSession, resumed: bool = False) -> int:
                 return _offer_indexing(app, session)
             if command in ("/esci", "/quit"):
                 _print_session_usage(app)
-                ui.info(f"Sessione conservata: riprendila con  ragpdf setup {session.doc.id}")
+                ui.info(f"Sessione conservata: riprendila con  ragpdf setup {session.project.id}")
                 return 0
             if command in ("/aiuto", "/help", "/?"):
                 print(HELP)
                 continue
             if command == "/anteprima":
                 if rest:
-                    session.set_preview_pages(parse_page_ranges(rest, session.doc.info.page_count) or [])
+                    session.set_preview_pages(parse_page_refs(rest, session.documents))
                 _preview(session)
                 continue
             if command == "/pagine":
                 if not rest:
-                    ui.info(f"Pagine attuali: {format_pages(session.state.context_pages)}")
+                    ui.info(f"Pagine attuali: {format_page_refs(session.state.context_pages, session.documents)}")
                     continue
-                session.set_context_pages(parse_page_ranges(rest, session.doc.info.page_count) or [])
-                ui.ok(f"Gemini guarderà le pagine {format_pages(session.state.context_pages)} "
+                session.set_context_pages(parse_page_refs(rest, session.documents))
+                ui.ok(f"Gemini guarderà le pagine {format_page_refs(session.state.context_pages, session.documents)} "
                       "dalla prossima correzione.")
                 continue
             if command == "/mostra":
@@ -443,17 +475,17 @@ def cmd_setup(app: App, args: argparse.Namespace) -> int:
         ui.hint("In alternativa: ragpdf primer generate <doc> --pages ...  e  ragpdf spec draft ...")
         return 1
     try:
-        doc = _resolve_document(app, args.doc)
-    except DocumentError as e:
+        project = _resolve_project(app, args.doc)
+    except (DocumentError, ProjectError) as e:
         ui.error(str(e))
         return 1
 
-    resumed = _resume(app, doc, args)
-    session = resumed or _start_new(app, doc, args)
+    resumed = _resume(app, project, args)
+    session = resumed or _start_new(app, project, args)
     if session is None:
         return 1
     try:
         return _loop(app, session, resumed=resumed is not None)
     except KeyboardInterrupt:
-        ui.warn(f"Interrotto. La sessione è conservata: riprendila con  ragpdf setup {doc.id}")
+        ui.warn(f"Interrotto. La sessione è conservata: riprendila con  ragpdf setup {project.id}")
         return 130

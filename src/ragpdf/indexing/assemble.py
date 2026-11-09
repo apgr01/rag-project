@@ -174,8 +174,15 @@ def assemble(
     return AssembledIndex(columns, [r for _, r in rows], anomalies, stats)
 
 
-def merge(spec: IndexingSpec, parts: list[AssembledIndex]) -> AssembledIndex:
-    """Unisce gli indici di più documenti (stessa specifica) in uno solo."""
+def merge(spec: IndexingSpec, parts: list[AssembledIndex], deduplicate: bool | None = None) -> AssembledIndex:
+    """Unisce gli indici di più documenti (stessa specifica) in uno solo.
+
+    ``deduplicate=False`` tiene anche le righe identiche di documenti diversi (progetti:
+    lo stesso codice in due cataloghi è un'informazione utile). I duplicati *dentro* un
+    documento sono già stati tolti in fase di assemblaggio.
+    """
+    if deduplicate is None:
+        deduplicate = spec.output.deduplicate
     columns = spec.output_columns
     rows: list[dict[str, str]] = []
     seen: set[tuple[str, ...]] = set()
@@ -183,7 +190,7 @@ def merge(spec: IndexingSpec, parts: list[AssembledIndex]) -> AssembledIndex:
     for part in parts:
         for row in part.rows:
             key = tuple(row.get(c, "") for c in columns)
-            if spec.output.deduplicate and key in seen:
+            if deduplicate and key in seen:
                 duplicates += 1
                 continue
             seen.add(key)

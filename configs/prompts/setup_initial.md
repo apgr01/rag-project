@@ -5,7 +5,7 @@ Aiuti un utente a configurare l'indicizzazione automatica di un documento PDF (t
 
 ## IL DOCUMENTO
 {{pages_note}}
-
+{{documents}}
 ## COSA VUOLE L'UTENTE
 {{goal}}
 {{example}}
@@ -36,4 +36,5 @@ Regole:
 ## ALTRI CAMPI
 - "summary": in italiano, rivolto all'utente, breve e concreto: cosa hai capito del documento e cosa proponi di indicizzare (cosa è una riga, quali colonne), più le scelte non ovvie.
 - "questions": domande per l'utente sui punti in cui la sua risposta migliorerebbe il risultato (massimo 5; lista vuota se non ce ne sono).
-- "preview_pages": da 2 a 4 pagine (numeri del documento ORIGINALE, tra quelle che vedi) adatte a provare l'estrazione: pagine tipo con dati, possibilmente con layout diversi.
+- "preview_pages": da 2 a 4 pagine adatte a provare l'estrazione (pagine tipo con dati, possibilmente con layout diversi e di documenti diversi), indicate con il NUMERO DI PAGINA DELL'ESTRATTO allegato (1 = prima pagina dell'estratto).
+- "document_notes": istruzioni particolari per singoli documenti che si discostano dagli altri, nella forma {"document": "[id]", "notes": "..."}; lista vuota se non servono (sempre vuota se il progetto ha un solo documento).

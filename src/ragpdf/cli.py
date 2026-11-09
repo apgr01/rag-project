@@ -32,6 +32,7 @@ from ragpdf.core.gemini import GeminiError, load_api_keys
 from ragpdf.core.manifest import DONE, FAILED, Manifest
 from ragpdf.core.page_runner import RunReport
 from ragpdf.core.paths import ENV_FILE, EXAMPLES_DIR, PROJECT_ROOT
+from ragpdf.core.projects import ProjectError
 from ragpdf.indexing.extractor import SpecChangedError, selected_pages
 from ragpdf.indexing.prompt import PromptBuilder
 from ragpdf.indexing.spec import SpecError
@@ -235,9 +236,10 @@ def cmd_doctor(app: App, args: argparse.Namespace) -> int:
 
 def cmd_add(app: App, args: argparse.Namespace) -> int:
     added: list[Document] = []
+    project = app.projects.get(args.project) if args.project else None
     for pdf in args.pdf:
         try:
-            doc = app.documents.add(Path(pdf), doc_id=args.id if len(args.pdf) == 1 else None)
+            doc = app.add_document(Path(pdf), project=project, doc_id=args.id if len(args.pdf) == 1 else None)
         except DuplicateDocumentError as e:
             ui.warn(str(e))
             continue
@@ -245,6 +247,11 @@ def cmd_add(app: App, args: argparse.Namespace) -> int:
         _warn_if_scanned(doc)
         added.append(doc)
 
+    if project is not None:
+        if added:
+            ui.ok(f"{len(added)} PDF aggiunti al progetto '{project.info.name}'.")
+            ui.hint(f"Usano primer e specifica del progetto: ragpdf project index {project.id}")
+        return 0 if added else 1
     for doc in added:
         if args.primer:
             app.assign_primer(doc, args.primer)
@@ -467,7 +474,7 @@ def cmd_index(app: App, args: argparse.Namespace) -> int:
     exit_code = 0
 
     for doc in docs:
-        spec = specs[doc.id]
+        spec = app.apply_document_settings(doc, specs[doc.id])   # note e pagine proprie (progetti)
         ui.title(f"Indicizzazione di '{doc.id}' con la specifica '{spec.name}'")
         primer = _ensure_primer(app, doc, assume_yes=args.yes)
         if primer is None:
@@ -669,6 +676,166 @@ def cmd_ui(app: App, args: argparse.Namespace) -> int:
     return 0
 
 
+# --- progetti -------------------------------------------------------------------------
+def cmd_project_list(app: App, args: argparse.Namespace) -> int:
+    projects = app.projects.list()
+    if not projects:
+        ui.info("Nessun progetto. Creane uno con: ragpdf project new <nome> file1.pdf file2.pdf ...")
+        return 0
+    rows = []
+    for p in projects:
+        docs = app.project_documents(p)
+        rows.append([p.id, p.info.name, len(docs), sum(d.info.page_count for d in docs), p.info.spec or "-"])
+    ui.table(["progetto", "nome", "PDF", "pagine", "specifica"], rows)
+    return 0
+
+
+def cmd_project_new(app: App, args: argparse.Namespace) -> int:
+    project = app.projects.create(args.name)
+    ui.ok(f"Progetto '{project.info.name}' creato ({project.id}).")
+    for pdf in args.pdf:
+        try:
+            doc = app.add_document(Path(pdf), project=project)
+            ui.ok(f"  + {doc.id} ({doc.info.page_count} pagine)")
+            _warn_if_scanned(doc)
+        except DuplicateDocumentError as e:
+            app.projects.add_document(project, e.existing.id)
+            ui.info(f"  + {e.existing.id} (già nel workspace)")
+    ui.hint(f"Prossimo passo: ragpdf setup {project.id}   (oppure l'interfaccia grafica: ragpdf ui)")
+    return 0
+
+
+def cmd_project_add(app: App, args: argparse.Namespace) -> int:
+    project = app.projects.get(args.project)
+    for ref in args.pdf:
+        path = Path(ref)
+        try:
+            if path.suffix.lower() == ".pdf" and path.is_file():
+                doc = app.add_document(path, project=project)
+            else:
+                doc = app.documents.get(ref)
+                app.projects.add_document(project, doc.id)
+            ui.ok(f"  + {doc.id} ({doc.info.page_count} pagine)")
+        except DuplicateDocumentError as e:
+            app.projects.add_document(project, e.existing.id)
+            ui.info(f"  + {e.existing.id} (già nel workspace)")
+    return 0
+
+
+def cmd_project_remove_doc(app: App, args: argparse.Namespace) -> int:
+    project = app.projects.get(args.project)
+    doc = app.documents.get(args.doc)
+    if app.remove_from_project(project, doc):
+        ui.ok(f"'{doc.id}' tolto dal progetto ed eliminato (non apparteneva ad altri progetti).")
+    else:
+        ui.ok(f"'{doc.id}' tolto dal progetto (resta negli altri progetti che lo usano).")
+    return 0
+
+
+def cmd_project_note(app: App, args: argparse.Namespace) -> int:
+    from ragpdf.core.projects import DocumentSettings
+
+    project = app.projects.get(args.project)
+    doc = app.documents.get(args.doc)
+    if doc.id not in project.info.documents:
+        ui.error(f"'{doc.id}' non fa parte del progetto '{project.info.name}'.")
+        return 1
+    current = project.settings_for(doc.id)
+    if args.clear:
+        settings = DocumentSettings()
+    else:
+        settings = DocumentSettings(
+            notes=args.notes if args.notes is not None else current.notes,
+            pages=(args.pages or None) if args.pages is not None else current.pages,
+        )
+    if settings.pages:
+        from ragpdf.core.render import parse_page_ranges
+
+        parse_page_ranges(settings.pages, doc.info.page_count)
+    project.set_settings(doc.id, settings)
+    project.save()
+    ui.ok(f"Impostazioni di '{doc.id}' nel progetto: note={settings.notes or '-'}  pagine={settings.pages or '-'}")
+    ui.hint("Le pagine già indicizzate di questo PDF andranno rifatte: le regole sono cambiate.")
+    return 0
+
+
+def cmd_project_index(app: App, args: argparse.Namespace) -> int:
+    from ragpdf.indexing.extractor import SpecChangedError
+
+    project = app.projects.get(args.project)
+    base = app.project_spec(project)
+    primer = app.project_primer(project)
+    extractor = app.extractor()
+    docs = app.project_documents(project)
+    plans = []
+    for doc in docs:
+        spec = app.document_spec(project, doc, base)
+        force = args.force
+        try:
+            manifest = extractor.open_manifest(doc, spec, primer, force=force)
+        except SpecChangedError as e:
+            ui.warn(f"{doc.id}: {e}")
+            question = f"Rifare '{doc.id}' da capo con le regole attuali?"
+            if not ui.ask_yes_no(question, default=False, assume_yes=args.yes):
+                continue
+            manifest = extractor.open_manifest(doc, spec, primer, force=True)
+        todo = manifest.pages_to_process(app.config.indexing.max_page_attempts, only=selected_pages(doc, spec))
+        plans.append((doc, spec, len(todo)))
+    total = sum(n for _, _, n in plans)
+    ui.title(f"Indicizzazione del progetto '{project.info.name}' ({len(docs)} PDF)")
+    for doc, _, n in plans:
+        ui.info(f"  {doc.id}: {n} pagine da elaborare")
+    if total and not ui.ask_yes_no(f"Avviare l'elaborazione di {total} pagine?", default=True, assume_yes=args.yes):
+        return 1
+    exit_code = 0
+    for doc, spec, n in plans:
+        if not n:
+            continue
+        ui.info(f"\n{doc.id}:")
+        report = extractor.run(doc, spec, primer)
+        _print_report(report, doc.id)
+        if report.stopped_reason or report.failed:
+            exit_code = 1
+        if report.stopped_reason:
+            break
+    return _print_project_export(app, project) or exit_code
+
+
+def _print_project_export(app: App, project) -> int:
+    result = app.export_project(project)
+    s = result.index.stats
+    ui.ok(f"CSV unico del progetto: {result.csv_path}")
+    ui.info(f"  righe: {s.get('righe_finali', 0)}   PDF indicizzati: {s.get('documenti_indicizzati', 0)}"
+            f"/{s.get('documenti_totali', 0)}")
+    for doc, r in result.documents:
+        ui.info(f"  - {doc.id}: {r.index.stats.get('righe_finali', 0)} righe -> {r.csv_path.name}")
+    for doc in result.not_indexed:
+        ui.warn(f"{doc.id} non è ancora indicizzato.")
+    for doc in result.stale:
+        ui.warn(f"{doc.id}: le regole sono cambiate dopo l'indicizzazione; rilancia 'ragpdf project index'.")
+    if result.anomalies_path:
+        ui.info(f"  anomalie: {result.anomalies_path}")
+    if result.search_page:
+        ui.info(f"  pagina di ricerca: {result.search_page}   (ragpdf project search {project.id})")
+    return 0
+
+
+def cmd_project_search(app: App, args: argparse.Namespace) -> int:
+    project = app.projects.get(args.project)
+    result = app.export_project(project)
+    if not result.search_page:
+        ui.error("Il progetto non ha ancora risultati: indicizzalo prima.")
+        return 1
+    ui.ok(f"Pagina di ricerca: {result.search_page}")
+    if not args.no_open and not ui.open_file(result.search_page):
+        ui.info("Aprila con il browser.")
+    return 0
+
+
+def cmd_project_export(app: App, args: argparse.Namespace) -> int:
+    return _print_project_export(app, app.projects.get(args.project))
+
+
 def _cmd_setup(app: App, args: argparse.Namespace) -> int:
     from ragpdf.cli_setup import cmd_setup
 
@@ -697,6 +864,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--id", help="identificativo da usare (default: ricavato dal nome del file)")
     p.add_argument("--primer", help="primer da associare (nome di un primer esistente)")
     p.add_argument("--no-primer", action="store_true", help="non chiedere nulla sul primer ora")
+    p.add_argument("--project", help="aggiungi i PDF a questo progetto (default: un progetto per PDF)")
     p.set_defaults(func=cmd_add)
 
     p = sub.add_parser("ui", help="INTERFACCIA GRAFICA nel browser (consigliata)")
@@ -710,7 +878,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Gemini guarda alcune pagine scelte da te, propone come indicizzare il documento e "
                     "prova l'estrazione; tu correggi a parole finché il risultato non ti convince.",
     )
-    p.add_argument("doc", help="documento del workspace, oppure percorso di un PDF da aggiungere")
+    p.add_argument("doc", help="progetto, documento del workspace, oppure percorso di un PDF da aggiungere")
     p.add_argument("--pages", help="pagine da mostrare a Gemini, es. '1,4,10-14,102,105'")
     p.add_argument("--goal", help="cosa vuoi ottenere, a parole (altrimenti viene chiesto)")
     p.add_argument("--reference", help="CSV di riferimento (modello di formato e confronto)")
@@ -719,6 +887,42 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--spec", help="parti da questa specifica esistente (insieme a --primer)")
     p.add_argument("--new", action="store_true", help="ricomincia da capo invece di riprendere la sessione")
     p.set_defaults(func=_cmd_setup)
+
+    pp = sub.add_parser("project", help="progetti: più PDF con la stessa struttura e un unico CSV")
+    psub = pp.add_subparsers(dest="project_command", metavar="<azione>", required=True)
+    p = psub.add_parser("list", help="elenca i progetti")
+    p.set_defaults(func=cmd_project_list)
+    p = psub.add_parser("new", help="crea un progetto, eventualmente con i suoi PDF")
+    p.add_argument("name", help="nome del progetto")
+    p.add_argument("pdf", nargs="*", help="file PDF da aggiungere")
+    p.set_defaults(func=cmd_project_new)
+    p = psub.add_parser("add", help="aggiunge PDF (file o documenti del workspace) a un progetto")
+    p.add_argument("project")
+    p.add_argument("pdf", nargs="+")
+    p.set_defaults(func=cmd_project_add)
+    p = psub.add_parser("remove-doc", help="toglie un documento da un progetto")
+    p.add_argument("project")
+    p.add_argument("doc")
+    p.set_defaults(func=cmd_project_remove_doc)
+    p = psub.add_parser("note", help="note e pagine proprie di un PDF del progetto")
+    p.add_argument("project")
+    p.add_argument("doc")
+    p.add_argument("--notes", help="istruzioni in più valide solo per questo PDF")
+    p.add_argument("--pages", help="pagine da indicizzare per questo PDF (vuoto = quelle della specifica)")
+    p.add_argument("--clear", action="store_true", help="toglie note e pagine proprie")
+    p.set_defaults(func=cmd_project_note)
+    p = psub.add_parser("index", help="indicizza tutti i PDF del progetto e produce il CSV unico")
+    p.add_argument("project")
+    p.add_argument("--force", action="store_true", help="rifai da capo anche le pagine già elaborate")
+    p.add_argument("-y", "--yes", action="store_true", help="non chiedere conferme")
+    p.set_defaults(func=cmd_project_index)
+    p = psub.add_parser("export", help="rigenera il CSV unico e quelli per PDF (senza Gemini)")
+    p.add_argument("project")
+    p.set_defaults(func=cmd_project_export)
+    p = psub.add_parser("search", help="genera e apre la pagina di ricerca HTML sul CSV unico")
+    p.add_argument("project")
+    p.add_argument("--no-open", action="store_true", help="non aprire il browser")
+    p.set_defaults(func=cmd_project_search)
 
     p = sub.add_parser("list", help="elenca i documenti e lo stato delle elaborazioni")
     p.set_defaults(func=cmd_list)
@@ -827,7 +1031,7 @@ def main(argv: list[str] | None = None) -> int:
         app = App(load_config(args.config))
         return args.func(app, args) or 0
     except (ConfigError, DocumentError, SpecError, GeminiError, PrimerMissingError, FileNotFoundError, ValueError,
-            ImportError, SetupError) as e:
+            ImportError, SetupError, ProjectError) as e:
         ui.error(str(e))
         return 1
     except KeyboardInterrupt:

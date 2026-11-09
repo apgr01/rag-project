@@ -2,7 +2,7 @@ Stai aiutando un utente a configurare l'indicizzazione automatica di un document
 
 ## IL DOCUMENTO
 {{pages_note}}
-
+{{documents}}
 ## OBIETTIVO INIZIALE DELL'UTENTE
 {{goal}}
 {{example}}
@@ -15,6 +15,9 @@ Stai aiutando un utente a configurare l'indicizzazione automatica di un document
 ````yaml
 {{spec}}
 ````
+
+## NOTE ATTUALI PER SINGOLI DOCUMENTI
+{{document_notes}}
 
 ## RISULTATO DELLA PROVA DI ESTRAZIONE
 {{preview}}
@@ -32,4 +35,5 @@ Stai aiutando un utente a configurare l'indicizzazione automatica di un document
 - Restituisci primer e specifica COMPLETI (non solo le parti modificate). La specifica deve restare YAML valido nello stesso formato.
 - "summary": in italiano, rivolto all'utente: elenco breve delle modifiche fatte e perché.
 - "questions": eventuali domande per l'utente (lista vuota se non ce ne sono).
-- "preview_pages": le pagine su cui rifare la prova (numeri del documento ORIGINALE); di solito le stesse di prima, a meno che l'utente chieda altro o serva provarne di diverse.
+- "preview_pages": le pagine su cui rifare la prova, con il NUMERO DI PAGINA DELL'ESTRATTO allegato; lista vuota per rifare la prova sulle stesse pagine di prima.
+- "document_notes": solo le note per singoli documenti da AGGIUNGERE o MODIFICARE ({"document": "[id]", "notes": "testo completo della nota"}); per togliere una nota usa "notes": "". Le note non citate restano invariate. Se una correzione riguarda un solo documento, mettila qui invece che nelle regole comuni. Lista vuota = nessun cambiamento.

@@ -3,6 +3,7 @@
 Struttura::
 
     data/
+    ├── projects/<id>/       progetti: gruppi di PDF con stesso primer e specifica (projects.py)
     ├── documents/<id>/      un documento: PDF, pagine, risultati (vedi documents.py)
     ├── primers/<nome>.md    primer, condivisi tra documenti dello stesso tipo
     ├── specs/<nome>.yaml    specifiche di indicizzazione (cosa estrarre e come)

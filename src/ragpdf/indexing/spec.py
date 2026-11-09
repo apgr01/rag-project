@@ -167,6 +167,21 @@ class IndexingSpec(_Strict):
             keys[col.name] = key
         return keys
 
+    # --- impostazioni per singolo documento ----------------------------------------------
+    def for_document(self, notes: str = "", pages: str | None = None, label: str = "") -> IndexingSpec:
+        """La specifica da usare per un documento con note e pagine proprie (progetti).
+
+        Le note vengono aggiunte alle istruzioni solo per quel documento; le colonne restano
+        le stesse, così i CSV dei documenti si possono unire.
+        """
+        update: dict = {}
+        if notes.strip():
+            title = f"NOTE SPECIFICHE PER QUESTO PDF ({label})" if label else "NOTE SPECIFICHE PER QUESTO PDF"
+            update["instructions"] = (self.instructions.rstrip() + f"\n\n### {title}\n{notes.strip()}\n").lstrip()
+        if pages:
+            update["pages"] = pages
+        return self.model_copy(update=update) if update else self
+
     # --- esempi --------------------------------------------------------------------
     def example_csv_path(self) -> Path | None:
         if not self.examples.csv:

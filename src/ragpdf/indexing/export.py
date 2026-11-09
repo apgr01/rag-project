@@ -62,3 +62,20 @@ def write_index(index: AssembledIndex, spec: IndexingSpec, csv_path: Path) -> Pa
     ]
     _write(anomalies_path, _to_csv(ANOMALY_COLUMNS, rows, spec.output.delimiter), spec.output.encoding)
     return anomalies_path
+
+
+def write_anomalies_by_document(
+    parts: list[tuple[str, AssembledIndex]], spec: IndexingSpec, path: Path
+) -> Path | None:
+    """Report anomalie unico per più documenti, con la colonna del documento."""
+    rows = []
+    for label, index in parts:
+        for a in sorted(index.anomalies, key=lambda a: (a.page or 0, a.csv_row or 0)):
+            rows.append({"documento": label, "livello": a.level, "pagina": a.page or "",
+                         "riga_csv": a.csv_row or "", "colonna": a.column or "", "valore": a.value,
+                         "problema": a.problem})
+    if not rows:
+        path.unlink(missing_ok=True)
+        return None
+    _write(path, _to_csv(["documento", *ANOMALY_COLUMNS], rows, spec.output.delimiter), spec.output.encoding)
+    return path

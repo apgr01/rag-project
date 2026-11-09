@@ -169,3 +169,36 @@ def render_thumbnail(pdf_path: Path, page_number: int, target: Path, dpi: int = 
                 raise ValueError(f"La pagina {page_number} non esiste.")
             doc[page_number - 1].get_pixmap(dpi=dpi).save(target)
     return target
+
+
+def build_multi_subset_pdf(entries: list[tuple[Path, int]], target: Path) -> Path:
+    """Estratto con pagine prese da più PDF, nell'ordine dato: ``[(pdf, pagina), ...]``."""
+    if not entries:
+        raise ValueError("Nessuna pagina selezionata per l'estratto.")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with PDF_LOCK:
+        out = pymupdf.open()
+        try:
+            opened: dict[Path, pymupdf.Document] = {}
+            try:
+                for path, page in entries:
+                    src = opened.setdefault(path, pymupdf.open(path))
+                    if not 1 <= page <= len(src):
+                        raise ValueError(f"La pagina {page} non esiste in {path.name} ({len(src)} pagine).")
+                    out.insert_pdf(src, from_page=page - 1, to_page=page - 1)
+            finally:
+                for src in opened.values():
+                    src.close()
+            out.save(target, garbage=3, deflate=True)
+        finally:
+            out.close()
+    return target
+
+
+def labeled_mapping_text(entries: list[tuple[str, int]], documents_count: int) -> str:
+    """Corrispondenza delle pagine di un estratto da più documenti: ``[(etichetta, pagina), ...]``."""
+    lines = [f"- pagina {i} dell'estratto = {label}, pagina {p}" for i, (label, p) in enumerate(entries, 1)]
+    return (
+        f"Il PDF allegato è un estratto di {len(entries)} pagine scelte da {documents_count} documenti "
+        f"con la stessa struttura. Corrispondenza delle pagine:\n" + "\n".join(lines)
+    )

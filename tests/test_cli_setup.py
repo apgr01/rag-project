@@ -40,7 +40,8 @@ def terminal(monkeypatch, tmp_path):
 def test_full_guided_session(terminal, pdf_factory, capsys):
     run, fake, tmp_path = terminal
     pdf = pdf_factory("Catalogo Guidato.pdf", pages=10)
-    fake.setup_answers = [answer(pages=(3, 4)), answer(spec=SPEC_V2, summary="Aggiunta descrizione.")]
+    # pagine di prova come numeri dell'estratto: 2 e 3 = pagine originali 2 e 4
+    fake.setup_answers = [answer(pages=(2, 3)), answer(spec=SPEC_V2, summary="Aggiunta descrizione.")]
     inputs = [
         "1-2, 4",                    # pagine da mostrare
         "una riga per codice",       # obiettivo
@@ -58,7 +59,7 @@ def test_full_guided_session(terminal, pdf_factory, capsys):
     assert "Aggiunto" not in out or "Documento aggiunto" in out
     assert "Una riga del CSV = Una riga per ogni codice." in out
     assert "Serve la colonna versione?" in out
-    assert "Prova di estrazione sulle pagine 3-4" in out
+    assert "Prova di estrazione sulle pagine 2, 4" in out
     assert "Prova di estrazione sulle pagine 5" in out
     assert "Comando sconosciuto" in out
     assert "Aggiunta descrizione." in out
