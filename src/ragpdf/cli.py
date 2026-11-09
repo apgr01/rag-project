@@ -237,6 +237,7 @@ def cmd_add(app: App, args: argparse.Namespace) -> int:
             ui.warn(str(e))
             continue
         ui.ok(f"Aggiunto '{doc.id}' ({doc.info.page_count} pagine).")
+        _warn_if_scanned(doc)
         added.append(doc)
 
     for doc in added:
@@ -248,6 +249,17 @@ def cmd_add(app: App, args: argparse.Namespace) -> int:
         else:
             ui.hint(f"Prossimo passo consigliato: ragpdf setup {doc.id}   (configurazione guidata)")
     return 0 if added or not args.pdf else 1
+
+
+def _warn_if_scanned(doc: Document) -> None:
+    from ragpdf.core.pdf_tools import has_text_layer
+
+    try:
+        if not has_text_layer(doc.pdf_path):
+            ui.info("  Il PDF non contiene testo selezionabile (probabilmente è una scansione):")
+            ui.info("  Gemini leggerà solo le immagini delle pagine. Se il testo è piccolo, aumenta il DPI.")
+    except Exception:
+        pass
 
 
 def cmd_list(app: App, args: argparse.Namespace) -> int:

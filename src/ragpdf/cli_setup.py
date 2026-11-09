@@ -76,6 +76,9 @@ def _resolve_document(app: App, ref: str) -> Document:
         try:
             doc = app.documents.add(path)
             ui.ok(f"Documento aggiunto come '{doc.id}' ({doc.info.page_count} pagine).")
+            from ragpdf.cli import _warn_if_scanned
+
+            _warn_if_scanned(doc)
             return doc
         except DuplicateDocumentError as e:
             ui.info(f"Il PDF è già nel workspace: uso '{e.existing.id}'.")
