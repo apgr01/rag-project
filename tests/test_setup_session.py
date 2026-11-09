@@ -441,3 +441,31 @@ def test_notes_not_mentioned_by_gemini_are_kept(multi):
     s.start()
     s.revise("correggi una colonna")             # Gemini non cita le note: restano
     assert s.document_notes() == {"beta": "nota B"}
+
+
+def test_old_round_preview_is_converted(env):
+    """Versioni salvate prima dei progetti: anteprima con pagine numeriche e impronta unica."""
+    from ragpdf.core.fileio import write_json
+
+    app, doc, project, fake = env
+    fake.setup_answers = [answer(pages=(2,))]
+    s = SetupSession.new(app, project, refs(doc, 1, 2))
+    s.start()
+    s.run_preview(show_progress=False)
+    # riscrive l'anteprima nel formato vecchio
+    notes = s.round_notes()
+    fp = notes["preview"]["fingerprints"][doc.id]
+    notes["preview"].update(pages=[2], rows_per_page={"2": 1}, fingerprint=fp)
+    notes["preview"].pop("fingerprints")
+    write_json(s.round_dir() / "round.json", notes)
+    old = s.round_dir() / "anteprima"
+    for f in (old / doc.id).glob("*.json"):
+        f.rename(old / f.name)
+    (old / doc.id).rmdir()
+
+    fresh = SetupSession.load(app, project)
+    info = fresh.round_notes()["preview"]
+    assert info["rows_per_page"] == [{"document": doc.id, "page": 2, "label": "pagina 2", "rows": 1}]
+    assert "pagina 2: 1 righe" in fresh.build_revise_prompt("x")
+    fresh.save()
+    assert fresh.reuse_preview() == 1          # risultati spostati e impronta riconosciuta

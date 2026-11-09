@@ -313,7 +313,29 @@ class SetupSession:
 
     def round_notes(self, n: int | None = None) -> dict[str, Any]:
         path = self.round_dir(n) / "round.json"
-        return read_json(path) if path.exists() else {}
+        notes = read_json(path) if path.exists() else {}
+        return self._upgrade_round_notes(notes)
+
+    def _upgrade_round_notes(self, notes: dict[str, Any]) -> dict[str, Any]:
+        """Versioni salvate prima dei progetti: pagine come numeri di un solo documento."""
+        preview = notes.get("preview")
+        if not preview or not isinstance(preview.get("rows_per_page"), dict):
+            return notes
+        doc_id = self.project.info.documents[0] if self.project.info.documents else ""
+        rows = preview["rows_per_page"]
+        preview["pages"] = [[doc_id, int(p)] for p in preview.get("pages") or rows]
+        preview["rows_per_page"] = [
+            {"document": doc_id, "page": int(p), "label": f"pagina {p}", "rows": n} for p, n in rows.items()
+        ]
+        if preview.get("fingerprint") and "fingerprints" not in preview:
+            preview["fingerprints"] = {doc_id: preview.pop("fingerprint")}
+        # anteprima vecchia: i risultati stavano in anteprima/ invece che in anteprima/<documento>/
+        old_dir = self.round_dir(notes.get("round")) / "anteprima"
+        if old_dir.exists() and any(old_dir.glob("page-*.json")) and not (old_dir / doc_id).exists():
+            (old_dir / doc_id).mkdir(parents=True)
+            for f in old_dir.glob("*.json"):
+                f.rename(old_dir / doc_id / f.name)
+        return notes
 
     def document_notes(self) -> dict[str, str]:
         """Note per singolo documento della versione corrente (o quelle già salvate nel progetto)."""
