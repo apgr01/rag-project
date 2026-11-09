@@ -18,6 +18,9 @@ ripulisce dagli artefatti più comuni:
   sovrapposta, e l'estrazione restituisce ``LLLOOOMMMBBBAAARRRDDDIIINNNIII``. Si corregge
   solo se **ogni** carattere della parola è ripetuto esattamente tre volte e la parola
   contiene lettere: codici come ``1100``, ``FIN040RS00`` o ``III`` restano intatti;
+- frammenti duplicati sovrapposti (altro modo in cui compare il finto grassetto: la
+  stessa parola ridisegnata con piccoli spostamenti), eliminati prima di ricomporre le
+  righe;
 - spazi e righe vuote superflue.
 
 Il testo è un *aiuto*: perde la struttura delle tabelle e può contenere errori. La fonte
@@ -83,10 +86,60 @@ def clean_text(text: str) -> str:
     return "\n".join(lines)
 
 
+def _page_spans(page: pymupdf.Page) -> list[tuple[str, tuple[float, float, float, float]]]:
+    """Frammenti di testo della pagina, senza i duplicati sovrapposti del *finto grassetto*.
+
+    Alcuni PDF simulano il grassetto disegnando lo stesso testo più volte spostato di
+    frazioni di punto. Due frammenti con lo stesso testo e quasi la stessa posizione sono
+    lo stesso testo: se ne tiene uno solo. Vale sia per parole intere sia per singole lettere.
+    """
+    spans: list[tuple[str, tuple[float, float, float, float]]] = []
+    data = page.get_text("dict")
+    for block in data.get("blocks", []):
+        for line in block.get("lines", []):
+            for span in line.get("spans", []):
+                text = span.get("text", "")
+                if not text.strip():
+                    continue
+                x0, y0, x1, y1 = span["bbox"]
+                tolerance = max(1.0, 0.25 * (y1 - y0))
+                duplicate = any(
+                    t == text and abs(b[0] - x0) <= tolerance and abs(b[1] - y0) <= tolerance
+                    for t, b in spans
+                )
+                if not duplicate:
+                    spans.append((text, (x0, y0, x1, y1)))
+    return spans
+
+
+def _spans_to_text(spans: list[tuple[str, tuple[float, float, float, float]]]) -> str:
+    """Ricompone i frammenti in righe, dall'alto in basso e da sinistra a destra."""
+    rows: list[list[tuple[str, tuple[float, float, float, float]]]] = []
+    for text, box in sorted(spans, key=lambda s: ((s[1][1] + s[1][3]) / 2, s[1][0])):
+        center = (box[1] + box[3]) / 2
+        height = box[3] - box[1]
+        for row in rows:
+            r_box = row[0][1]
+            if abs((r_box[1] + r_box[3]) / 2 - center) <= 0.5 * max(height, r_box[3] - r_box[1]):
+                row.append((text, box))
+                break
+        else:
+            rows.append([(text, box)])
+    lines = []
+    for row in rows:
+        row.sort(key=lambda s: s[1][0])
+        parts = [row[0][0]]
+        for (_, prev), (text, box) in zip(row, row[1:], strict=False):
+            gap = box[0] - prev[2]
+            parts.append((" | " if gap > 6 else " " if gap > 0.5 else "") + text)
+        lines.append("".join(parts))
+    return "\n".join(lines)
+
+
 def page_text(pdf_path: Path, page_number: int, max_chars: int = 12000) -> str:
     """Testo nativo ripulito di una pagina (stringa vuota se la pagina è solo immagine)."""
     with pymupdf.open(pdf_path) as doc:
-        raw = doc[page_number - 1].get_text("text", sort=True)
+        raw = _spans_to_text(_page_spans(doc[page_number - 1]))
     text = clean_text(raw)
     if len(text) > max_chars:
         text = text[:max_chars] + "\n[... testo troncato ...]"
