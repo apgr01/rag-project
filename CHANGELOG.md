@@ -6,6 +6,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
 ## [Non rilasciato] — 0.2.0
 
 ### Aggiunto
+- **Progetti di indicizzazione**: più PDF con la stessa struttura, primer e specifica comuni,
+  note e pagine proprie per singolo PDF (anche proposte da Gemini), configurazione guidata con
+  pagine da più PDF e prova su ognuno, **CSV unico** con la colonna del file e CSV per PDF.
+  Comandi `ragpdf project ...`; interfaccia organizzata per progetti. I cataloghi esistenti
+  diventano automaticamente progetti da un PDF.
+- **Pagina di ricerca** HTML autonoma generata dal CSV unico (`ricerca.html`).
 - **Interfaccia grafica** (`ragpdf ui`): server locale e pagina web con configurazione guidata
   (miniature cliccabili, prompt visibile prima dell'invio, conferme, bozze, versioni),
   indicizzazione con avanzamento e annullamento, risultati e download.
@@ -41,7 +47,7 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   (id leggibile e impronta SHA-256 per riconoscere i duplicati).
 - Client Gemini con pool di chiavi, ritmo per chiave condiviso tra i thread, gestione
   degli errori per codice HTTP, arresto ordinato a quote esaurite.
-- Client Gemini simulato (`RAGPDF_FAKE_GEMINI=1`) e 120 test automatici senza rete.
+- Client Gemini simulato (`RAGPDF_FAKE_GEMINI=1`) e 132 test automatici senza rete.
 - Specifiche d'esempio (`examples/specs/`) e guida passo passo
   (`docs/GUIDA_INDICIZZAZIONE.md`), documento di architettura (`docs/ARCHITETTURA.md`).
 - `pyproject.toml`, roadmap, changelog.

@@ -38,6 +38,7 @@ src/ragpdf/
 │   ├── paths.py        percorsi dell'applicazione
 │   ├── config.py       configurazione validata (Pydantic)
 │   ├── workspace.py    struttura della cartella dati
+│   ├── projects.py     progetti: più PDF, impostazioni per PDF
 │   ├── documents.py    registro dei documenti (id, SHA-256, primer)
 │   ├── render.py       PDF -> PNG con cache
 │   ├── pdf_tools.py    estratti PDF, testo nativo ripulito
@@ -55,6 +56,7 @@ src/ragpdf/
 │   ├── extractor.py    Gemini pagina per pagina -> JSON salvati
 │   ├── assemble.py     JSON -> righe del CSV, controlli, anomalie
 │   ├── compare.py      confronto con un CSV di riferimento
+│   ├── search_page.py  pagina di ricerca HTML autonoma sul CSV unico
 │   └── export.py       scrittura di CSV e report anomalie
 │
 └── rag/                modalità RAG (domande e risposte)
@@ -108,20 +110,46 @@ pagine vecchie e nuove produrrebbe un CSV incoerente: il programma lo rileva e c
 rifare. Le modifiche che non toccano le risposte (sezione `output`, `required`) non
 cambiano l'impronta: basta `ragpdf export`.
 
+## Progetti
+
+Un **progetto** è l'unità di lavoro: uno o più PDF con la stessa struttura, un primer e una
+specifica comuni, un CSV unico.
+
+```
+progetto ── documenti: alfa, beta, gamma
+         ├── primer + specifica  (comuni: stesse colonne per tutti)
+         ├── impostazioni per PDF: note, pagine   ── IndexingSpec.for_document()
+         └── export: CSV unico + CSV per PDF + anomalie con il file + ricerca.html
+```
+
+- **Note per PDF**: le differenze di un catalogo si esprimono come istruzioni aggiuntive solo
+  per lui, invece di complicare le regole comuni. Le colonne non cambiano, così il CSV resta
+  unico. L'impronta dei risultati è per documento: cambiare la nota di un PDF fa rifare solo
+  quello.
+- **Righe uguali di PDF diversi** vengono tenute (lo stesso codice in due cataloghi è
+  un'informazione); i duplicati dentro un PDF sono già tolti in fase di assemblaggio.
+- **Contesto ereditato** solo dentro ciascun PDF: ogni documento viene assemblato a sé, poi i
+  risultati vengono uniti.
+- **Compatibilità**: i documenti senza progetto (creati prima) diventano progetti da un PDF
+  all'avvio, con la loro sessione di configurazione. Un PDF tolto dall'ultimo progetto che lo
+  usa viene eliminato, altrimenti tornerebbe come progetto a sé.
+
 ## La configurazione guidata (`ragpdf setup`)
 
 ```
-utente: pagine significative (1,4,10-14,...), obiettivo, CSV di riferimento
+utente: pagine significative anche da più PDF (alfa 1-4, beta 12), obiettivo, CSV di riferimento
    │
    ▼
 pdf_tools.build_subset_pdf ─► estratto PDF con solo quelle pagine
    │                           (pagine NON modificate: la corrispondenza con le
    │                            pagine originali è scritta nel prompt)
    ▼
-Gemini (setup_initial.md) ─► JSON: primer, specifica YAML, riepilogo, domande, pagine di prova
+Gemini (setup_initial.md) ─► JSON: primer, specifica YAML, note per PDF, riepilogo, domande,
+   │                            pagine di prova (numerate come nell'estratto)
    │
    ▼  giro N salvato in documents/<id>/setup/rounds/NN/
-Extractor.preview ─► anteprima sulle pagine di prova, STESSE regole dell'indicizzazione vera
+Extractor.preview ─► anteprima sulle pagine di prova (almeno una per PDF), STESSE regole
+   │                 dell'indicizzazione vera, con le note di ciascun PDF
    │                 + confronto con il riferimento (stesso file, stesse pagine)
    ▼
 utente: correzione a parole ──► Gemini (setup_revise.md) riceve estratto, primer e specifica
@@ -150,6 +178,21 @@ Scelte:
   manuali registrate come nuovi giri.
 - **Specifica non valida**: si chiede una correzione mostrando gli errori, una volta; se
   fallisce ancora, la versione precedente resta quella valida.
+- **Pagine di prova numerate come nell'estratto**: con più PDF un numero di pagina "originale"
+  sarebbe ambiguo.
+- **Note per PDF incrementali**: Gemini indica solo le note da aggiungere, cambiare o togliere
+  (esplicitamente); una nota non citata resta, così una dimenticanza del modello non cancella
+  le note scritte dall'utente.
+
+## La pagina di ricerca
+
+`search_page.py` genera un unico file HTML con i dati incorporati in JSON e un piccolo script:
+nessun server, nessuna libreria, si apre ovunque. La ricerca normalizza testo e query
+(minuscole, senza accenti, senza spazi/punti/trattini) e confronta per sottostringa: semplice
+e adatta a codici scritti in modi diversi. Le righe che contengono la query intera vanno in
+cima. I filtri nascono dalle colonne con 2-60 valori distinti. Con circa 30.000 righe il file
+pesa ~4,5 MB e la ricerca richiede pochi millisecondi; oltre qualche centinaio di migliaia di
+righe converrebbe un indice vero (es. SQLite FTS) servito da un server.
 
 ## L'interfaccia grafica (`ragpdf ui`)
 

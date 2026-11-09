@@ -56,10 +56,15 @@ Decisi insieme e da rispettare in tutti gli step:
 - [x] **Interfaccia grafica** (`ragpdf ui`): server locale + pagina web; configurazione con
   miniature cliccabili, prompt visibile prima dell'invio, conferme con il numero di richieste,
   bozze, versioni, indicizzazione con avanzamento e annullamento, risultati e download.
+- [x] **Progetti** con più PDF della stessa struttura: primer e specifica comuni, note e
+  pagine per singolo PDF (anche proposte da Gemini), configurazione con pagine da più PDF e
+  prova su ognuno, indicizzazione unica, **CSV unico** e CSV per PDF.
+- [x] **Pagina di ricerca** HTML autonoma sul CSV unico (ricerca tollerante, filtri, link ai
+  PDF, download dei risultati).
 - [x] **Quote**: classificazione dai dettagli dell'errore e ritmo complessivo adattivo
   (emerso dalla prima indicizzazione reale con 10 chiavi dello stesso progetto).
 - [x] **Consumo e costi**: riepilogo di richieste e token; opzione `thinking_level`.
-- [x] **Test**: 120 test senza rete con Gemini simulato, più prove della sessione guidata in
+- [x] **Test**: 132 test senza rete con Gemini simulato, più prove della sessione guidata in
   un terminale reale (pseudo-tty) e dell'interfaccia in Chromium (Playwright).
 - [ ] **Step 3 — Qualità del retrieval (RAG)**: embedding multilingue locali configurabili,
   soglia di rilevanza.
@@ -90,8 +95,10 @@ Altro:
 - Modalità **Struttura**: indice gerarchico del documento; l'analisi del PDF intero usata
   per il primer è un buon punto di partenza.
 - RAG con filtri sui metadati e ricerca ibrida (keyword per codici esatti + vettoriale).
-- Interfaccia grafica: modalità RAG (domande sui cataloghi), unione dei CSV di più cataloghi,
-  confronto con un riferimento sull'indicizzazione completa.
+- Interfaccia grafica: modalità RAG (domande sui cataloghi), confronto con un riferimento
+  sull'indicizzazione completa.
+- Pagina di ricerca: colonne visibili configurabili, ricerca per campo, pubblicazione su un
+  sito (oggi è un file autonomo).
 
 ## Note dal collaudo
 

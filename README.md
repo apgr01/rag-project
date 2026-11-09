@@ -74,10 +74,12 @@ ragpdf doctor --online
 ragpdf ui
 ```
 
-Si apre nel browser l'**interfaccia grafica**: carichi il PDF, scegli le pagine cliccando le
-miniature, Gemini propone cosa estrarre e prova l'estrazione, tu correggi a parole; poi avvii
-l'indicizzazione e scarichi il CSV. Ogni invio a Gemini chiede conferma e mostra quante
-richieste partiranno.
+Si apre nel browser l'**interfaccia grafica**. Crei un **progetto** con uno o più PDF della
+stessa struttura (es. i cataloghi di un editore), scegli le pagine cliccando le miniature,
+Gemini propone cosa estrarre e prova l'estrazione su ogni PDF, tu correggi a parole (anche con
+note per singoli PDF); poi avvii l'indicizzazione e ottieni **un CSV unico** per tutti i PDF e
+una **pagina di ricerca** pronta. Ogni invio a Gemini chiede conferma e mostra quante richieste
+partiranno.
 
 Da riga di comando lo stesso percorso è:
 
@@ -113,7 +115,8 @@ La guida completa, passo per passo e con esempi, è in
 |---|---|
 | `ragpdf doctor [--online]` | Verifica chiavi, cartelle, documenti (e una richiesta reale a Gemini) |
 | `ragpdf ui` | **Interfaccia grafica** nel browser (consigliata) |
-| `ragpdf setup <doc o pdf>` | **Configurazione guidata**: primer e specifica con Gemini, anteprima e correzioni a parole |
+| `ragpdf project new/add/note/index/export/search ...` | Progetti con più PDF: CSV unico e pagina di ricerca |
+| `ragpdf setup <progetto, doc o pdf>` | **Configurazione guidata**: primer e specifica con Gemini, anteprima e correzioni a parole |
 | `ragpdf add <pdf>...` | Aggiunge PDF al workspace |
 | `ragpdf list` | Documenti, primer associati, avanzamento delle indicizzazioni |
 | `ragpdf remove <doc>` | Elimina un documento e i suoi risultati |
@@ -145,10 +148,11 @@ rag-project/
 ├── tests/               test automatici (Gemini simulato)
 ├── docs/                documentazione
 └── data/                IL TUO WORKSPACE (non versionato)
+    ├── projects/<id>/   progetti: PDF, primer, specifica, note per PDF, configurazione
     ├── documents/<id>/  PDF, immagini delle pagine, risultati per pagina
     ├── primers/         primer
     ├── specs/           specifiche di indicizzazione
-    └── exports/         CSV prodotti
+    └── exports/         CSV prodotti (per progetto: CSV unico, CSV per PDF, ricerca.html)
 ```
 
 ## Sviluppo

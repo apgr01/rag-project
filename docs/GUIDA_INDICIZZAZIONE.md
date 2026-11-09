@@ -74,29 +74,77 @@ ragpdf ui
 Il comando avvia un piccolo server **solo su questo computer** e apre il browser. Lascia
 aperta la finestra del terminale finché usi l'interfaccia; per chiuderla premi Ctrl+C.
 
-**Cataloghi.** Trascina un PDF nel riquadro (o cliccalo per sceglierlo). L'elenco mostra per
-ogni catalogo lo stato della configurazione e dell'indicizzazione.
+### Progetti: più PDF, un CSV
+
+Tutto è organizzato per **progetto**: uno o più PDF **con la stessa struttura** (per esempio
+i cataloghi dello stesso editore) che condividono primer e specifica e producono **un CSV
+unico** da usare in una pagina di ricerca. Un singolo PDF è semplicemente un progetto con un
+solo file; i cataloghi già configurati prima dei progetti sono stati convertiti
+automaticamente.
+
+**Progetti (home).** Dai un nome, trascina uno o più PDF nel riquadro e premi *Crea progetto*.
+
+**Documenti.** Aggiungi altri PDF in qualsiasi momento (anche dopo l'indicizzazione: verranno
+elaborate solo le loro pagine). Per ogni PDF puoi impostare, facoltativamente:
+- **note**: istruzioni in più valide solo per quel PDF, per le differenze o le particolarità
+  da segnalare (es. "in questo catalogo la versione è scritta sotto il nome del motore");
+- **pagine da indicizzare**, se diverse dagli altri (es. `5-` se ha 4 pagine introduttive).
+
+Le **colonne** restano le stesse per tutti: è ciò che permette il CSV unico. Cambiando le note
+di un PDF andrà reindicizzato solo quel PDF.
 
 **1 · Configurazione.**
-1. Scegli le pagine da mostrare a Gemini cliccando le miniature (Maiusc+clic per un
-   intervallo; doppio clic per ingrandire una pagina), oppure scrivile nel campo di testo.
+1. Scegli le pagine da mostrare a Gemini. Con più PDF c'è una scheda per ciascuno: puoi
+   prendere, per esempio, indice e legenda da un catalogo e due schede tipo da un altro.
+   Clic sulle miniature (Maiusc+clic per un intervallo, doppio clic per ingrandire), oppure
+   scrivi le pagine nel campo di testo. Il riepilogo sotto mostra tutto ciò che hai scelto.
 2. Scrivi cosa vuoi ottenere (o lascia vuoto) e, se vuoi, carica un CSV di riferimento.
 3. *Avanti* mostra un riepilogo: puoi tornare indietro, vedere **il prompt esatto** che verrà
    inviato e solo allora premere *Invia a Gemini*.
-4. Arrivano la proposta di Gemini (riepilogo, domande, colonne) e la **prova di estrazione**
-   (righe estratte, confronto con il riferimento; clic su una riga per vedere la pagina).
-5. Scrivi cosa correggere nel riquadro *Correzione* e premi *Invia correzione*. Le versioni
-   restano nell'elenco: un clic per tornare a una precedente. Primer e specifica si possono
-   anche modificare a mano nei riquadri in fondo.
+4. Arrivano la proposta di Gemini (riepilogo, domande, colonne, eventuali **note per singoli
+   PDF** che si discostano dagli altri) e la **prova di estrazione**, che include sempre
+   **almeno una pagina per ogni PDF**: è lì che si vede se hanno davvero la stessa struttura.
+   Clic su una riga per vedere la sua pagina.
+5. Scrivi cosa correggere nel riquadro *Correzione* (anche riferito a un solo PDF: "nel Kubota
+   la versione è sotto il nome") e premi *Invia correzione*. Gemini decide se è una regola
+   comune o una nota per quel PDF. Le versioni restano nell'elenco: un clic per tornare a una
+   precedente. Primer, specifica e note si possono anche modificare a mano nei riquadri in
+   fondo.
 6. *Salva configurazione* quando il risultato ti convince.
 
-**2 · Indicizzazione.** Mostra pagine fatte e da fare e la stima dei tempi; *Avvia* parte dopo
-una conferma. La barra di avanzamento si aggiorna da sola e *Ferma* interrompe in modo
-ordinato. Puoi chiudere la pagina: il lavoro continua finché il terminale con `ragpdf ui` è
-aperto, e riaprendo la pagina lo ritrovi.
+**2 · Indicizzazione.** Una tabella per PDF con pagine fatte e da fare e la stima dei tempi;
+*Avvia* elabora tutti i PDF dopo una conferma. La barra di avanzamento si aggiorna da sola e
+*Ferma* interrompe in modo ordinato. Puoi chiudere la pagina: il lavoro continua finché il
+terminale con `ragpdf ui` è aperto, e riaprendo la pagina lo ritrovi. Se hai cambiato primer,
+specifica o note, vengono rifatti **solo** i PDF interessati.
 
-**3 · Risultati.** Numero di righe, anomalie (prima errori, poi avvisi, poi note di Gemini;
-clic per vedere la pagina), prime righe del CSV e pulsanti per scaricare CSV e anomalie.
+**3 · Risultati.**
+- **CSV unico** del progetto (colonna del file d'origine per sapere da quale PDF viene ogni
+  riga) e un CSV per ciascun PDF;
+- anomalie di tutti i PDF (prima errori, poi avvisi, poi note di Gemini; clic per vedere la
+  pagina);
+- **pagina di ricerca**: si apre con il pulsante, ed è anche salvata come file autonomo in
+  `data\exports\<progetto>\ricerca.html`, che si apre con un doppio clic senza il server
+  (vedi più sotto).
+
+Lo stesso codice presente in più cataloghi compare **una volta per ogni catalogo**, con il suo
+file e la sua pagina: in una ricerca è utile sapere dove si trova.
+
+### La pagina di ricerca
+
+Una pagina HTML con tutti i dati del CSV unico:
+- **ricerca libera** su tutte le colonne, tollerante a spazi, punti e trattini: `fin 102 af`
+  trova `FIN102AF`, `6501044` trova `6501.044`; con più parole devono esserci tutte, e in
+  cima compaiono le righe che contengono la ricerca intera (il codice esatto);
+- **filtri** automatici sulle colonne con pochi valori (costruttore, file, cilindri, …);
+- clic sulle intestazioni per **ordinare**; risultati a pagine da 100;
+- link **"apri p.N"** per aprire il PDF alla pagina da cui viene la riga;
+- **Scarica risultati (CSV)**: solo le righe trovate.
+
+Il file si rigenera a ogni indicizzazione o export. Provata con un indice reale di circa
+30.000 righe: si apre in meno di mezzo secondo e cerca in pochi millesimi di secondo. Per
+condividerla con altri basta il file `ricerca.html` (i link ai PDF funzionano se si copia
+l'intera cartella `data`).
 
 **Protezioni:**
 - i pulsanti con la stellina ✨ usano Gemini e chiedono sempre conferma, dicendo quante
@@ -104,23 +152,38 @@ clic per vedere la pagina), prime righe del CSV e pulsanti per scaricare CSV e a
 - obiettivo e correzioni restano bozze, salvate nel browser, finché non premi il pulsante;
 - se hai modificato primer o specifica senza salvare, cambiando pagina viene chiesto se
   perdere le modifiche;
-- su ogni catalogo può girare una sola operazione alla volta.
+- su ogni progetto può girare una sola operazione alla volta.
 
 Il resto della guida descrive gli stessi passi da riga di comando, utili per automatizzare o
 se preferisci il terminale.
 
 ---
 
-## 1b. Configurazione guidata da riga di comando: `ragpdf setup`
+## 1b. Da riga di comando: progetti e configurazione guidata
 
-È il modo consigliato. Non serve leggere tutto il catalogo né scrivere a mano cosa
-indicizzare: lo propone Gemini, tu correggi a parole guardando un'anteprima del risultato.
+```powershell
+ragpdf project new "Cataloghi motori" "C:\cataloghi\Lombardini.pdf" "C:\cataloghi\Kubota.pdf"
+ragpdf setup cataloghi-motori
+ragpdf project index cataloghi-motori
+ragpdf project search cataloghi-motori
+```
+
+Con più PDF le pagine si indicano così: `lombardini: 1-4, 38-41; kubota: 12` (basta una parte
+del nome). Altri comandi: `ragpdf project add <progetto> file.pdf`,
+`ragpdf project note <progetto> <pdf> --notes "..." --pages "5-"`, `ragpdf project export`,
+`ragpdf project remove-doc`, `ragpdf project list`.
+
+Il resto di questa sezione descrive la sessione `ragpdf setup` per un singolo PDF; con un
+progetto funziona allo stesso modo.
+
+Non serve leggere tutto il catalogo né scrivere a mano cosa indicizzare: lo propone Gemini, tu
+correggi a parole guardando un'anteprima del risultato.
 
 ```powershell
 ragpdf setup "C:\cataloghi\Catalogo 1 LOMBARDINI rel 1501.pdf"
 ```
 
-Il PDF viene aggiunto al workspace (`data\documents\catalogo-1-lombardini-rel-1501\`) con un
+Il PDF viene aggiunto al workspace, in un progetto con il suo stesso nome, (`data\documents\catalogo-1-lombardini-rel-1501\`) con un
 identificativo ricavato dal nome; nei comandi successivi basta una parte dell'id, purché
 non sia ambigua: `lombardini`. Se il PDF è già stato aggiunto, si usa quello.
 
@@ -215,7 +278,7 @@ ragpdf setup "C:\cataloghi\Catalogo 2 LOMBARDINI.pdf" --primer catalogo-1-lombar
 
 ---
 
-## 2. Indicizza tutto il documento
+## 2. Indicizza tutto il documento (riga di comando)
 
 ```powershell
 ragpdf index lombardini
