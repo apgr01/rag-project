@@ -281,8 +281,8 @@ def cmd_list(app: App, args: argparse.Namespace) -> int:
             c = m.counts()
             progress.append(f"{spec_name} {c.get(DONE, 0)}/{d.info.page_count}"
                             + (f" ({c[FAILED]} fallite)" if c.get(FAILED) else ""))
-        rows.append([d.id, d.info.page_count, d.info.primer or "-", ", ".join(progress) or "-"])
-    ui.table(["documento", "pagine", "primer", "indicizzazioni (pagine fatte)"], rows)
+        rows.append([d.id, d.info.page_count, d.info.primer or "-", d.info.spec or "-", ", ".join(progress) or "-"])
+    ui.table(["documento", "pagine", "primer", "specifica", "indicizzazioni (pagine fatte)"], rows)
     return 0
 
 
