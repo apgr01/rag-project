@@ -511,7 +511,15 @@ def cmd_index(app: App, args: argparse.Namespace) -> int:
         if not doc.info.spec:
             app.assign_spec(doc, spec.name)  # la prossima volta non serve indicarla
 
+    _print_usage(app)
     return exit_code
+
+
+def _print_usage(app: App) -> None:
+    client = app._client
+    usage = getattr(client, "usage", None)
+    if usage is not None and usage.requests:
+        ui.info(f"Consumo: {usage.describe()}.")
 
 
 def cmd_export(app: App, args: argparse.Namespace) -> int:

@@ -92,6 +92,9 @@ class FakeGeminiClient:
         self._parallelism = parallelism
         self.requests: list[FakeRequest] = []
         self._lock = threading.Lock()
+        from ragpdf.core.gemini import Usage
+
+        self.usage = Usage()
 
     @property
     def parallelism(self) -> int:
@@ -102,6 +105,7 @@ class FakeGeminiClient:
         request.pdf_pages = _count_pages(request.pdf)
         with self._lock:
             self.requests.append(request)
+            self.usage.requests += 1
         if self.responder is not None:
             return self.responder(request)
         return default()

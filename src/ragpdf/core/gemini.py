@@ -104,6 +104,8 @@ class LLMClient(Protocol):
     @property
     def parallelism(self) -> int: ...
 
+    usage: Usage
+
     def generate_text(
         self, prompt: str, images: Sequence[Path] = (), pdf: Path | None = None, model: str | None = None
     ) -> str: ...
@@ -143,6 +145,34 @@ def load_api_keys(env_file: Path = ENV_FILE) -> list[str]:
         if k and k not in unique:
             unique.append(k)
     return unique
+
+
+@dataclass
+class Usage:
+    """Consumo cumulativo: richieste andate a buon fine e token (da ``usage_metadata``)."""
+
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0       # risposta + eventuale "ragionamento" del modello
+
+    def add(self, response: Any) -> None:
+        meta = getattr(response, "usage_metadata", None)
+        self.requests += 1
+        if meta is None:
+            return
+        self.input_tokens += getattr(meta, "prompt_token_count", 0) or 0
+        self.output_tokens += (getattr(meta, "candidates_token_count", 0) or 0) + (
+            getattr(meta, "thoughts_token_count", 0) or 0
+        )
+
+    def describe(self) -> str:
+        if not self.requests:
+            return "nessuna richiesta a Gemini"
+        per = (self.input_tokens + self.output_tokens) // self.requests
+        return (
+            f"{self.requests} richieste a Gemini, token: {self.input_tokens:,} in ingresso + "
+            f"{self.output_tokens:,} in uscita (circa {per:,} per richiesta)"
+        ).replace(",", ".")
 
 
 @dataclass
@@ -217,6 +247,7 @@ class GeminiClient:
         self._log = log
         self._lock = threading.Lock()
         self._interval = 60.0 / settings.requests_per_minute_per_key
+        self.usage = Usage()
 
     @classmethod
     def from_env(cls, settings: GeminiSettings, **kwargs: Any) -> GeminiClient:
@@ -375,7 +406,10 @@ class GeminiClient:
             try:
                 response = client.models.generate_content(model=model, contents=parts, config=config)
                 check_finish(response)
-                return parse(response)
+                result = parse(response)
+                with self._lock:
+                    self.usage.add(response)
+                return result
             finally:
                 if uploaded is not None:
                     try:

@@ -323,8 +323,10 @@ def _loop(app: App, session: SetupSession, resumed: bool = False) -> int:
         try:
             if command in ("/ok", "/salva"):
                 _save(app, session)
+                _print_session_usage(app)
                 return _offer_indexing(app, session)
             if command in ("/esci", "/quit"):
+                _print_session_usage(app)
                 ui.info(f"Sessione conservata: riprendila con  ragpdf setup {session.doc.id}")
                 return 0
             if command in ("/aiuto", "/help", "/?"):
@@ -395,6 +397,12 @@ def _loop(app: App, session: SetupSession, resumed: bool = False) -> int:
         except GeminiError as e:
             ui.error(str(e))
             ui.hint("La versione attuale non è cambiata. Puoi riprovare o uscire con /esci.")
+
+
+def _print_session_usage(app: App) -> None:
+    usage = getattr(app._client, "usage", None)
+    if usage is not None and usage.requests:
+        ui.info(f"Consumo della sessione: {usage.describe()}.")
 
 
 def _manual_edit(session: SetupSession, what: str) -> None:

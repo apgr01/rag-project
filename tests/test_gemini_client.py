@@ -160,8 +160,9 @@ def test_small_pdf_is_sent_inline(tmp_path):
             return NS(text='{"ok": true}')
 
     sdk = NS(files=None, models=Models())
+    clock = FakeClock()
     client = GeminiClient(["k"], GeminiSettings(model="vision-m", text_model="text-m", media_resolution="high"),
-                          client_factory=lambda k: sdk, log=lambda m: None)
+                          client_factory=lambda k: sdk, log=lambda m: None, sleep=clock.sleep, clock=clock.clock)
     pdf = tmp_path / "a.pdf"
     pdf.write_bytes(b"%PDF-1.4 piccolo")
     assert client.generate_json("p", {"type": "object"}, pdf=pdf) == {"ok": True}
@@ -189,11 +190,30 @@ def test_incomplete_responses_are_not_retried(finish, block, expected):
             feedback = NS(block_reason=NS(name=block)) if block else None
             return NS(text='{"a": 1}', candidates=candidates, prompt_feedback=feedback)
 
+    clock = FakeClock()
     client = GeminiClient(["k1", "k2"], GeminiSettings(), client_factory=lambda k: NS(models=Models()),
-                          log=lambda m: None)
+                          log=lambda m: None, sleep=clock.sleep, clock=clock.clock)
     if expected is None:
         assert client.generate_json("p", {"type": "object"}) == {"a": 1}
     else:
         with pytest.raises(IncompleteResponseError, match=expected):
             client.generate_json("p", {"type": "object"})
     assert len(calls) == 1
+
+
+def test_usage_is_accumulated():
+    from types import SimpleNamespace as NS
+
+    class Models:
+        def generate_content(self, model, contents, config):
+            meta = NS(prompt_token_count=1000, candidates_token_count=200, thoughts_token_count=50)
+            return NS(text="ok", candidates=[], prompt_feedback=None, usage_metadata=meta)
+
+    clock = FakeClock()
+    client = GeminiClient(["k"], GeminiSettings(), client_factory=lambda k: NS(models=Models()), log=lambda m: None,
+                          sleep=clock.sleep, clock=clock.clock)
+    client.generate_text("a")
+    client.generate_text("b")
+    u = client.usage
+    assert (u.requests, u.input_tokens, u.output_tokens) == (2, 2000, 500)
+    assert "2 richieste" in u.describe() and "2.000" in u.describe()
