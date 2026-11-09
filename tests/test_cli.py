@@ -75,3 +75,31 @@ def test_primer_generate_with_selected_pages(run, pdf_factory, tmp_path):
     run("add", str(pdf_factory("Grande.pdf", pages=12)), "--no-primer")
     assert run("primer", "generate", "grande", "--pages", "1,4,10-11") == 0
     assert (tmp_path / "data" / "primers" / "grande.md").exists()
+
+
+def test_each_document_uses_its_own_spec_and_merge(run, pdf_factory, tmp_path, capsys):
+    run("add", str(pdf_factory("Alfa.pdf", pages=1)), "--no-primer")
+    run("add", str(pdf_factory("Beta.pdf", pages=1, prefix="B")), "--no-primer")
+    run("spec", "new", "spec-a")
+    run("spec", "new", "spec-b")
+    assert run("index", "alfa", "--spec", "spec-a", "-y") == 0
+    assert run("index", "beta", "--spec", "spec-b", "-y") == 0
+    capsys.readouterr()
+    # dopo la prima volta la specifica è ricordata: niente --spec
+    assert run("index", "--all", "-y") == 0
+    out = capsys.readouterr().out
+    assert "'alfa' con la specifica 'spec-a'" in out and "'beta' con la specifica 'spec-b'" in out
+    # stesse colonne (stesso modello): unione possibile in exports/TUTTI.csv
+    assert run("export", "--all") == 0
+    assert (tmp_path / "data" / "exports" / "TUTTI.csv").exists()
+
+
+def test_merge_refused_with_different_columns(run, pdf_factory, capsys):
+    run("add", str(pdf_factory("Alfa.pdf", pages=1)), "--no-primer")
+    run("add", str(pdf_factory("Beta.pdf", pages=1, prefix="B")), "--no-primer")
+    run("spec", "new", "a")
+    run("spec", "new", "b", "--from", "finimpianti-fin-oem")
+    run("index", "alfa", "--spec", "a", "-y")
+    run("index", "beta", "--spec", "b", "-y")
+    assert run("export", "--all") == 1
+    assert "colonne diverse" in capsys.readouterr().out

@@ -169,6 +169,24 @@ class Extractor:
         return self._extract(doc, spec, primer_text, todo, doc.extraction_dir(spec.name), manifest,
                              "Indicizzazione", show_progress)
 
+    def seed(self, doc: Document, spec: IndexingSpec, primer_text: str, source_dir: Path) -> int:
+        """Riusa risultati già ottenuti (es. dall'anteprima) come pagine fatte dell'indicizzazione.
+
+        Va chiamato solo se i risultati sono stati prodotti con la stessa impronta
+        (stessa specifica, primer, modello e modalità di input). Restituisce le pagine copiate.
+        """
+        manifest = self.open_manifest(doc, spec, primer_text)
+        out_dir = doc.extraction_dir(spec.name)
+        copied = 0
+        for src in sorted(source_dir.glob("page-*.json")):
+            n = int(src.stem.split("-")[1])
+            if manifest.page(n)["status"] == DONE:
+                continue
+            write_json(self.result_path(out_dir, n), read_json(src))
+            manifest.mark_done(n)
+            copied += 1
+        return copied
+
     def preview(
         self,
         doc: Document,

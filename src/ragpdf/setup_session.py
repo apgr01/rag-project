@@ -498,6 +498,7 @@ class SetupSession:
                 if a.level != "info" or "nota del modello" in a.problem
             ][:MAX_ANOMALIES_IN_PROMPT],
         }
+        info["fingerprint"] = self.app.extractor().fingerprint(self.load_spec(), self.primer_text())
         if preview.comparison is not None:
             c = preview.comparison
             info["comparison"] = {
@@ -534,6 +535,29 @@ class SetupSession:
         load_spec(spec_target)
 
         self.app.assign_primer(self.doc, self.state.primer_name)
+        self.app.assign_spec(self.doc, self.state.spec_name)
         self.state.saved_at = utc_now()
         self.save_state()
         return primer_target, spec_target
+
+    def reuse_preview(self) -> int:
+        """Copia le pagine dell'ultima anteprima nell'indicizzazione vera, se le regole coincidono.
+
+        Evita di pagare due volte le stesse pagine. Restituisce le pagine riutilizzate
+        (0 se le regole sono cambiate o se esiste già un'indicizzazione con regole diverse).
+        """
+        from ragpdf.indexing.extractor import SpecChangedError
+
+        preview = self.round_notes().get("preview") or {}
+        out_dir = self.round_dir() / "anteprima"
+        if not preview.get("fingerprint") or not out_dir.exists():
+            return 0
+        spec = load_spec(self.app.workspace.spec_path(self.state.spec_name))
+        primer = self.app.workspace.read_primer(self.state.primer_name)
+        extractor = self.app.extractor()
+        if extractor.fingerprint(spec, primer) != preview["fingerprint"]:
+            return 0
+        try:
+            return extractor.seed(self.doc, spec, primer, out_dir)
+        except SpecChangedError:
+            return 0

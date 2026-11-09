@@ -167,3 +167,15 @@ def test_preview_does_not_touch_real_results(app, pdf_factory, tmp_path):
     assert not doc.extraction_dir(SPEC.name).exists()
     report, results = app.extractor().preview(doc, SPEC, "p", [4], out, show_progress=False)
     assert sorted(results) == [4]   # ogni anteprima riparte da zero
+
+
+def test_seed_reuses_preview_results(app, pdf_factory, tmp_path):
+    doc = app.documents.add(pdf_factory(pages=4))
+    out = tmp_path / "anteprima"
+    app.extractor().preview(doc, SPEC, "p", [2, 3], out, show_progress=False)
+    before = len(app.client().requests)
+    assert app.extractor().seed(doc, SPEC, "p", out) == 2
+    report = app.extractor().run(doc, SPEC, "p", show_progress=False)
+    assert report.requested == 2                                  # solo le pagine 1 e 4
+    assert len(app.client().requests) - before == 2
+    assert app.extractor().seed(doc, SPEC, "p", out) == 0         # già fatte

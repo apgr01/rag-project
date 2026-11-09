@@ -245,3 +245,26 @@ def test_spec_from_gemini_with_code_fences_and_wrong_name(env):
     s = SetupSession.new(app, doc, [1])
     s.start()
     assert yaml.safe_load(s.spec_text())["name"] == doc.id
+
+
+def test_save_reuses_preview_only_if_rules_unchanged(env, pdf_factory):
+    app, doc, fake = env
+    fake.setup_answers = [answer(pages=(3, 4))]
+    s = SetupSession.new(app, doc, [1, 3, 4])
+    s.start()
+    s.run_preview(show_progress=False)
+    s.save()
+    assert app.documents.get(doc.id).info.spec == doc.id
+    assert s.reuse_preview() == 2
+    manifest = (doc.extraction_dir(doc.id) / "manifest.json")
+    assert manifest.exists()
+
+    # se la specifica salvata viene cambiata dopo l'anteprima, niente riuso
+    other = SetupSession.new(app, app.documents.add(pdf_factory("altro.pdf", pages=5, prefix="Z")), [1, 2])
+    fake.setup_answers = [answer(pages=(2,))]
+    other.start()
+    other.run_preview(show_progress=False)
+    other.save()
+    spec_file = app.workspace.spec_path(other.state.spec_name)
+    spec_file.write_text(spec_file.read_text(encoding="utf-8") + "instructions: nuova regola\n", encoding="utf-8")
+    assert other.reuse_preview() == 0

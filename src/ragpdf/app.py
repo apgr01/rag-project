@@ -71,6 +71,10 @@ class App:
         doc.info.primer = name
         doc.save()
 
+    def assign_spec(self, doc: Document, name: str) -> None:
+        doc.info.spec = name
+        doc.save()
+
     # --- specifiche -----------------------------------------------------------------
     def load_spec(self, ref: str) -> IndexingSpec:
         """Carica una specifica per nome (``data/specs/<nome>.yaml``) o per percorso."""
@@ -116,10 +120,18 @@ class App:
         current = spec.extraction_fingerprint(primer, self.config.gemini.model, self.config.indexing.input)
         return manifest.meta.get("fingerprint") not in (None, current)
 
-    def export_merged(self, spec: IndexingSpec, docs: list[Document]) -> ExportResult:
-        parts = [self.export(d, spec).index for d in docs]
+    def export_merged(
+        self,
+        spec: IndexingSpec,
+        docs: list[Document],
+        target_dir: Path | None = None,
+        specs: dict[str, IndexingSpec] | None = None,
+    ) -> ExportResult:
+        """Unisce i CSV di più documenti. Le specifiche devono avere le stesse colonne."""
+        specs = specs or {}
+        parts = [self.export(d, specs.get(d.id, spec)).index for d in docs]
         merged = merge(spec, parts)
-        csv_path = self.workspace.exports_dir / spec.name / "TUTTI.csv"
+        csv_path = (target_dir or self.workspace.exports_dir / spec.name) / "TUTTI.csv"
         write_index(merged, spec, csv_path)
         return ExportResult(csv_path, None, merged)
 

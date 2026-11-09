@@ -253,7 +253,10 @@ def _save(app: App, session: SetupSession) -> bool:
             primer_target, spec_target = session.targets()
     primer_path, spec_path = session.save()
     ui.ok(f"Primer salvato: {primer_path}")
-    ui.ok(f"Specifica salvata: {spec_path}")
+    ui.ok(f"Specifica salvata: {spec_path} (predefinita per '{session.doc.id}')")
+    reused = session.reuse_preview()
+    if reused:
+        ui.info(f"Le {reused} pagine dell'ultima prova sono già contate come indicizzate (nessuna nuova richiesta).")
     return True
 
 
@@ -261,7 +264,7 @@ def _offer_indexing(app: App, session: SetupSession) -> int:
     from ragpdf import cli
 
     spec = session.load_spec()
-    ui.info(f"\nPer indicizzare tutto il documento: ragpdf index {session.doc.id} --spec {session.state.spec_name}")
+    ui.info(f"\nPer indicizzare tutto il documento: ragpdf index {session.doc.id}")
     if spec.pages:
         ui.info(f"(verranno elaborate le pagine {spec.pages}, come indicato nella specifica)")
     if not ui.ask_yes_no("Avviare ora l'indicizzazione completa?", default=False):

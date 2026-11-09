@@ -35,6 +35,7 @@ class DocumentInfo(BaseModel):
     sha256: str
     page_count: int
     primer: str | None = None
+    spec: str | None = None        # specifica di indicizzazione predefinita del documento
     added_at: str
 
 

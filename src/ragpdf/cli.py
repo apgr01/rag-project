@@ -136,9 +136,12 @@ def _resolve_docs(app: App, refs: list[str], use_all: bool) -> list[Document]:
     return [app.documents.get(r) for r in refs]
 
 
-def _resolve_spec_name(app: App, given: str | None) -> str:
+def _resolve_spec_name(app: App, given: str | None, doc: Document | None = None) -> str:
+    """Specifica da usare: quella indicata, poi quella predefinita del documento, poi si chiede."""
     if given:
         return given
+    if doc is not None and doc.info.spec and app.workspace.spec_path(doc.info.spec).exists():
+        return doc.info.spec
     specs = app.workspace.list_specs()
     if len(specs) == 1:
         ui.info(f"Uso l'unica specifica presente: '{specs[0]}'.")
@@ -440,12 +443,14 @@ def cmd_spec_check(app: App, args: argparse.Namespace) -> int:
 # --- indicizzazione ------------------------------------------------------------------
 def cmd_index(app: App, args: argparse.Namespace) -> int:
     docs = _resolve_docs(app, args.docs, args.all)
-    spec = app.load_spec(_resolve_spec_name(app, args.spec))
+    # Ogni documento usa la specifica indicata, oppure la propria predefinita (da 'setup').
+    specs = {doc.id: app.load_spec(_resolve_spec_name(app, args.spec, doc)) for doc in docs}
     extractor = app.extractor()
     parallelism = app.config.indexing.max_workers or extractor.client.parallelism
     exit_code = 0
 
     for doc in docs:
+        spec = specs[doc.id]
         ui.title(f"Indicizzazione di '{doc.id}' con la specifica '{spec.name}'")
         primer = _ensure_primer(app, doc, assume_yes=args.yes)
         if primer is None:
@@ -486,26 +491,50 @@ def cmd_index(app: App, args: argparse.Namespace) -> int:
 
         result = app.export(doc, spec)
         _print_export(app, result, doc.id)
+        if not doc.info.spec:
+            app.assign_spec(doc, spec.name)  # la prossima volta non serve indicarla
 
     return exit_code
 
 
 def cmd_export(app: App, args: argparse.Namespace) -> int:
-    spec = app.load_spec(_resolve_spec_name(app, args.spec))
-    if args.all or not args.docs:
-        docs = app.indexed_documents(spec.name)
-        if not docs:
-            ui.error(f"Nessun documento è stato indicizzato con la specifica '{spec.name}'.")
-            return 1
+    # Coppie (documento, specifica) da esportare.
+    pairs: list[tuple[Document, str]] = []
+    if args.docs and not args.all:
+        for ref in args.docs:
+            doc = app.documents.get(ref)
+            pairs.append((doc, _resolve_spec_name(app, args.spec, doc)))
+    elif args.spec:
+        pairs = [(d, args.spec) for d in app.indexed_documents(args.spec)]
     else:
-        docs = [app.documents.get(r) for r in args.docs]
+        for doc in app.documents.list():
+            done = doc.list_extractions()
+            name = doc.info.spec if doc.info.spec in done else (done[0] if len(done) == 1 else None)
+            if name:
+                pairs.append((doc, name))
+            elif done:
+                ui.warn(f"'{doc.id}' ha più indicizzazioni ({', '.join(done)}): indica --spec.")
+    if not pairs:
+        detail = f" con la specifica '{args.spec}'" if args.spec else ""
+        ui.error(f"Nessun documento indicizzato da esportare{detail}.")
+        return 1
 
-    for doc in docs:
-        _print_export(app, app.export(doc, spec), doc.id)
+    specs = {name: app.load_spec(name) for name in {n for _, n in pairs}}
+    for doc, name in pairs:
+        _print_export(app, app.export(doc, specs[name]), doc.id)
 
-    if args.merge or (args.all and len(docs) > 1):
-        merged = app.export_merged(spec, docs)
-        ui.ok(f"CSV unico di {len(docs)} documenti ({merged.index.stats['righe_finali']} righe): {merged.csv_path}")
+    if args.merge or (args.all and len(pairs) > 1):
+        columns = {tuple(spec.output_columns) for spec in specs.values()}
+        if len(columns) > 1:
+            ui.warn("I documenti usano specifiche con colonne diverse: non è possibile unirli in un unico CSV.")
+            for name, spec in specs.items():
+                ui.info(f"  {name}: {', '.join(spec.output_columns)}")
+            return 1
+        reference_spec = next(iter(specs.values()))
+        target_dir = None if len(specs) == 1 else app.workspace.exports_dir
+        merged = app.export_merged(reference_spec, [d for d, _ in pairs], target_dir=target_dir,
+                                   specs={d.id: specs[n] for d, n in pairs})
+        ui.ok(f"CSV unico di {len(pairs)} documenti ({merged.index.stats['righe_finali']} righe): {merged.csv_path}")
     return 0
 
 
@@ -515,8 +544,8 @@ def cmd_compare(app: App, args: argparse.Namespace) -> int:
     from ragpdf.indexing.export import _to_csv, _write
     from ragpdf.indexing.spec import read_csv_rows
 
-    spec = app.load_spec(_resolve_spec_name(app, args.spec))
     doc = app.documents.get(args.doc)
+    spec = app.load_spec(_resolve_spec_name(app, args.spec, doc))
     produced = app.export(doc, spec).index
     ref_columns, reference = read_csv_rows(Path(args.reference))
 
@@ -706,7 +735,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("index", help="indicizza uno o più documenti e produce il CSV")
     p.add_argument("docs", nargs="*", help="documenti (id, nome del file o parte dell'id)")
     p.add_argument("--all", action="store_true", help="tutti i documenti del workspace")
-    p.add_argument("--spec", help="specifica da usare (se ce n'è una sola si usa quella)")
+    p.add_argument("--spec", help="specifica da usare (default: quella del documento, impostata da 'setup')")
     p.add_argument("--pages", help="solo alcune pagine, es. '20-30' o '5,8,12-' (utile per una prova)")
     p.add_argument("--force", action="store_true", help="rifai da capo anche le pagine già elaborate")
     p.add_argument("-y", "--yes", action="store_true", help="non chiedere conferme")
@@ -715,7 +744,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("export", help="rigenera i CSV dai risultati salvati (senza chiamare Gemini)")
     p.add_argument("docs", nargs="*", help="documenti (default: tutti quelli indicizzati)")
     p.add_argument("--all", action="store_true", help="tutti i documenti indicizzati, più il CSV unico")
-    p.add_argument("--spec", help="specifica")
+    p.add_argument("--spec", help="specifica (default: quella di ciascun documento)")
     p.add_argument("--merge", action="store_true", help="crea anche un CSV unico (TUTTI.csv)")
     p.set_defaults(func=cmd_export)
 
