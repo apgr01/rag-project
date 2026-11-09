@@ -31,7 +31,7 @@ import yaml
 from ragpdf.app import App
 from ragpdf.core.documents import Document
 from ragpdf.core.fileio import atomic_write_text, read_json, utc_now, write_json
-from ragpdf.core.page_runner import RunReport
+from ragpdf.core.page_runner import RunControl, RunReport
 from ragpdf.core.paths import EXAMPLES_DIR
 from ragpdf.core.pdf_tools import build_subset_pdf, page_mapping_text
 from ragpdf.core.prompts import load_prompt, render_prompt
@@ -476,12 +476,12 @@ class SetupSession:
         self.save_state()
 
     # ---------------------------------------------------------------- anteprima
-    def run_preview(self, show_progress: bool = True) -> Preview:
+    def run_preview(self, show_progress: bool = True, control: RunControl | None = None) -> Preview:
         spec = self.load_spec()
         pages = self.state.preview_pages or self._fallback_preview_pages()
         out_dir = self.round_dir() / "anteprima"
         report, results = self.app.extractor().preview(
-            self.doc, spec, self.primer_text(), pages, out_dir, show_progress=show_progress
+            self.doc, spec, self.primer_text(), pages, out_dir, show_progress=show_progress, control=control
         )
         failed = {n: msg for n, msg in report.failed.items()}
         index = assemble(spec, results, self.doc.info.source_filename, pages, failed)

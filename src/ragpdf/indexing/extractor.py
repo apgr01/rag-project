@@ -32,7 +32,7 @@ from ragpdf.core.documents import Document
 from ragpdf.core.fileio import read_json, utc_now, write_json
 from ragpdf.core.gemini import LLMClient
 from ragpdf.core.manifest import DONE, Manifest
-from ragpdf.core.page_runner import RunReport, run_pages
+from ragpdf.core.page_runner import RunControl, RunReport, run_pages
 from ragpdf.core.pdf_tools import build_subset_pdf, page_text
 from ragpdf.core.render import parse_page_ranges, render_pages
 from ragpdf.indexing.prompt import PromptBuilder
@@ -160,6 +160,7 @@ class Extractor:
         pages: str | None = None,
         force: bool = False,
         show_progress: bool = True,
+        control: RunControl | None = None,
     ) -> RunReport:
         manifest = self.open_manifest(doc, spec, primer_text, force)
         selected = selected_pages(doc, spec, pages)
@@ -167,7 +168,7 @@ class Extractor:
         if not todo:
             return RunReport()
         return self._extract(doc, spec, primer_text, todo, doc.extraction_dir(spec.name), manifest,
-                             "Indicizzazione", show_progress)
+                             "Indicizzazione", show_progress, control)
 
     def seed(self, doc: Document, spec: IndexingSpec, primer_text: str, source_dir: Path) -> int:
         """Riusa risultati già ottenuti (es. dall'anteprima) come pagine fatte dell'indicizzazione.
@@ -195,6 +196,7 @@ class Extractor:
         pages: list[int],
         out_dir: Path,
         show_progress: bool = True,
+        control: RunControl | None = None,
     ) -> tuple[RunReport, dict[int, dict[str, Any]]]:
         """Estrazione di prova su poche pagine, in una cartella separata.
 
@@ -205,7 +207,7 @@ class Extractor:
                 old.unlink()
         manifest = Manifest.load_or_create(out_dir / "manifest.json", doc.info.page_count)
         report = self._extract(doc, spec, primer_text, sorted(set(pages)), out_dir, manifest,
-                               "Anteprima", show_progress)
+                               "Anteprima", show_progress, control)
         results = {int(p.stem.split("-")[1]): read_json(p) for p in sorted(out_dir.glob("page-*.json"))}
         return report, results
 
@@ -238,7 +240,10 @@ class Extractor:
         manifest: Manifest,
         label: str,
         show_progress: bool,
+        control: RunControl | None = None,
     ) -> RunReport:
+        if control is not None:
+            control.report(0, len(pages), "Preparazione delle pagine")
         inputs = self._page_inputs(doc, pages, show_progress)
         builder = PromptBuilder(spec, primer_text, doc.info.page_count)
 
@@ -259,7 +264,7 @@ class Extractor:
             )
 
         parallelism = self.config.indexing.max_workers or self.client.parallelism
-        return run_pages(pages, worker, manifest, parallelism, label, show_progress)
+        return run_pages(pages, worker, manifest, parallelism, label, show_progress, control)
 
 
 def load_page_results(doc: Document, spec_name: str) -> dict[int, dict[str, Any]]:

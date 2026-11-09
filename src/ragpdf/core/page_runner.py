@@ -44,6 +44,23 @@ class _Stop(Exception):
     pass
 
 
+@dataclass
+class RunControl:
+    """Collegamento con un'interfaccia: avanzamento e richiesta di annullamento.
+
+    ``progress(fatte, totali, messaggio)`` viene chiamata dopo ogni pagina; ``cancel``
+    è un evento che l'interfaccia può impostare per fermare il lavoro in modo ordinato
+    (le pagine in corso terminano, le altre non partono).
+    """
+
+    progress: Callable[[int, int, str], None] | None = None
+    cancel: threading.Event = field(default_factory=threading.Event)
+
+    def report(self, done: int, total: int, message: str = "") -> None:
+        if self.progress is not None:
+            self.progress(done, total, message)
+
+
 def run_pages(
     pages: list[int],
     worker: Callable[[int], None],
@@ -51,10 +68,12 @@ def run_pages(
     parallelism: int,
     description: str,
     show_progress: bool = True,
+    control: RunControl | None = None,
 ) -> RunReport:
     report = RunReport(requested=len(pages))
     if not pages:
         return report
+    control = control or RunControl()
 
     stop = threading.Event()
     lock = threading.Lock()
@@ -62,7 +81,7 @@ def run_pages(
 
     def task(n: int) -> None:
         nonlocal consecutive_failures
-        if stop.is_set():
+        if stop.is_set() or control.cancel.is_set():
             raise _Stop()
         try:
             worker(n)
@@ -95,6 +114,8 @@ def run_pages(
     executor = ThreadPoolExecutor(max_workers=max(1, parallelism))
     try:
         futures = {executor.submit(task, n): n for n in pages}
+        done = 0
+        control.report(0, len(pages), description)
         with tqdm(total=len(pages), desc=description, unit="pag", disable=not show_progress) as bar:
             for future in as_completed(futures):
                 n = futures[future]
@@ -104,8 +125,11 @@ def run_pages(
                     with lock:
                         report.not_attempted += 1
                 except Exception:
-                    tqdm.write(f"  Pagina {n}: {report.failed.get(n, 'errore')}")
+                    if show_progress:
+                        tqdm.write(f"  Pagina {n}: {report.failed.get(n, 'errore')}")
                 bar.update(1)
+                done += 1
+                control.report(done, len(pages), description)
     except KeyboardInterrupt:
         stop.set()
         report.stopped_reason = "interrotto dall'utente (Ctrl+C)"
@@ -115,4 +139,6 @@ def run_pages(
     finally:
         executor.shutdown(wait=True)
 
+    if control.cancel.is_set() and report.stopped_reason is None and report.not_attempted:
+        report.stopped_reason = "annullato dall'utente"
     return report
