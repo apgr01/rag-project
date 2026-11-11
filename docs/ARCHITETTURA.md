@@ -249,6 +249,12 @@ tenere corte le risposte.
 - `429` al minuto → pausa della chiave; `429` giornaliero → chiave esclusa; quando tutte
   sono escluse → `QuotaExhaustedError`, che ferma l'elaborazione in modo ordinato;
 - `5xx` e rete → nuovo tentativo con attesa crescente (backoff esponenziale);
+- `503` sovraccarico ("high demand") → nuovo tentativo a intervallo fisso, senza consumare
+  tentativi: è un problema momentaneo di Google, uguale per tutte le chiavi, e raddoppiare le
+  attese allungherebbe solo i tempi; oltre `max_wait_minutes` → `ServiceUnavailableError`, che
+  ferma il lavoro in modo ordinato come le quote esaurite;
+- annullamento: ogni lavoro registra nel proprio thread l'evento "Ferma" (`cancellation`), che il
+  client controlla prima di ogni tentativo e durante ogni attesa;
 - risposte interrotte (lunghezza massima) o bloccate dai filtri → errore immediato della
   pagina con spiegazione, senza tentativi inutili;
 - altri errori → subito, con messaggio chiaro.

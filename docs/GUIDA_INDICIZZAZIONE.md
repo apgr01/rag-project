@@ -152,7 +152,9 @@ l'intera cartella `data`).
 - obiettivo e correzioni restano bozze, salvate nel browser, finché non premi il pulsante;
 - se hai modificato primer o specifica senza salvare, cambiando pagina viene chiesto se
   perdere le modifiche;
-- su ogni progetto può girare una sola operazione alla volta.
+- su ogni progetto può girare una sola operazione alla volta;
+- durante un'operazione i messaggi di Gemini (sovraccarico, quote, rallentamenti) compaiono sotto
+  la barra di avanzamento; *Ferma* interrompe subito anche le attese in corso.
 
 Il resto della guida descrive gli stessi passi da riga di comando, utili per automatizzare o
 se preferisci il terminale.
@@ -395,6 +397,8 @@ output:
 |---|---|---|
 | `gemini.model` | `gemini-3.6-flash` | se `doctor --online` segnala un modello non disponibile |
 | `gemini.requests_per_minute_per_key` | 10 | in base ai limiti del tuo piano |
+| `gemini.retry_delay_seconds` | 5 | attesa fissa prima di riprovare dopo un sovraccarico (503) o un errore di rete |
+| `gemini.max_wait_minutes` | 10 | oltre questa attesa continua (sovraccarico, quote) il lavoro si ferma |
 | `gemini.max_requests_per_minute_total` | (vuoto: adattivo) | il limite al minuto del tuo progetto, se lo conosci |
 | `gemini.media_resolution` | (vuoto) | `high` se Gemini legge male testi minuscoli |
 | `gemini.thinking_level` | (vuoto) | `low` per estrazioni più veloci ed economiche; verifica con `compare` che la qualità regga |
@@ -419,6 +423,7 @@ confronta i risultati con `ragpdf compare`.
 | Problema | Soluzione |
 |---|---|
 | `Nessuna chiave API Gemini` | Crea `.env` da `.env.example` e inserisci almeno una chiave |
+| `Gemini sovraccarico (503, alta richiesta)` | Momentaneo e lato Google, uguale per tutte le chiavi: il programma riprova ogni 5 secondi (`gemini.retry_delay_seconds`) senza far fallire le pagine; se dura più di 10 minuti (`gemini.max_wait_minutes`) si ferma e si riprende rilanciando. Nell'interfaccia il messaggio compare sotto la barra; *Ferma* interrompe subito |
 | `quota giornaliera esaurita` | Aspetta il reset della quota (o usa chiavi di altri progetti) e rilancia: riprende da dove era |
 | Molti messaggi "rallento a circa N richieste/minuto" | Normale con chiavi dello stesso progetto; per evitarli imposta `gemini.max_requests_per_minute_total` al limite del progetto |
 | Troppe pagine di fila fallite | Problema generale (nome del modello, chiave non valida): `ragpdf doctor --online` |

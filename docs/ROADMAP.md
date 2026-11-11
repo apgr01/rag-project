@@ -64,7 +64,7 @@ Decisi insieme e da rispettare in tutti gli step:
 - [x] **Quote**: classificazione dai dettagli dell'errore e ritmo complessivo adattivo
   (emerso dalla prima indicizzazione reale con 10 chiavi dello stesso progetto).
 - [x] **Consumo e costi**: riepilogo di richieste e token; opzione `thinking_level`.
-- [x] **Test**: 133 test senza rete con Gemini simulato, più prove della sessione guidata in
+- [x] **Test**: 136 test senza rete con Gemini simulato, più prove della sessione guidata in
   un terminale reale (pseudo-tty) e dell'interfaccia in Chromium (Playwright).
 - [ ] **Step 3 — Qualità del retrieval (RAG)**: embedding multilingue locali configurabili,
   soglia di rilevanza.
