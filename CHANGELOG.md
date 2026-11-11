@@ -8,7 +8,9 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
 ### Aggiunto
 - **Gemini Snake**: mini gioco durante l'attesa dei lavori di Gemini nell'interfaccia, con
   l'avanzamento vero, ripartenza automatica se si perde e animazione finale che porta ai
-  risultati. Si può nascondere (scelta ricordata).
+  risultati (a fine indicizzazione, e a fine di ogni altro lavoro se si sta giocando: il
+  passaggio alla pagina successiva aspetta la fine dell'animazione). Si può nascondere
+  (scelta ricordata).
 - Il browser ricontrolla sempre i file dell'interfaccia (`Cache-Control: no-cache`), così dopo
   un aggiornamento non mescola pagine vecchie e script nuovi.
 - **Progetti di indicizzazione**: più PDF con la stessa struttura, primer e specifica comuni,

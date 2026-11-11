@@ -196,6 +196,14 @@ let activeGame = null;
 function snakeHidden() { try { return localStorage.getItem(SNAKE_HIDDEN_KEY) === "1"; } catch { return false; } }
 function setSnakeHidden(v) { try { localStorage.setItem(SNAKE_HIDDEN_KEY, v ? "1" : "0"); } catch { /* ignorato */ } }
 function stopGame() { if (activeGame) { activeGame.destroy(); activeGame = null; } }
+function jobSucceeded(j) { return j.status === "completato" && !(j.result && j.result.stopped_reason); }
+
+/** Testi dell'animazione finale secondo il tipo di lavoro. */
+function finaleTexts(j) {
+  if (j.kind === "index") return {};                                   // quelli predefiniti
+  return { title: "Gemini ha finito!", text: "Primer, specifica e anteprima appena sfornati ✦",
+           labels: ["primer", "specifica", "anteprima"] };
+}
 
 /** Carica snake.js se la pagina non l'ha già fatto (es. index.html vecchia nella cache). */
 function loadSnake() {
@@ -210,8 +218,9 @@ function loadSnake() {
 }
 
 /** Mostra un lavoro in corso e lo segue fino alla fine; poi chiama onDone(job).
- *  Durante l'attesa c'è Gemini Snake (si può nascondere). Con finale=true, se il lavoro
- *  finisce bene, il serpente "produce" gli indici ed esplode prima di chiamare onDone. */
+ *  Durante l'attesa c'è Gemini Snake (si può nascondere). Se il lavoro finisce bene e il
+ *  gioco è in corso (o finale=true, per l'indicizzazione), il serpente "produce" i risultati
+ *  ed esplode: onDone viene chiamato solo alla fine dell'animazione. */
 function watchJob(container, job, onDone, { finale = false } = {}) {
   stopPolling();
   stopGame();
@@ -277,12 +286,12 @@ function watchJob(container, job, onDone, { finale = false } = {}) {
     try {
       const j = await api("GET", `/api/jobs/${job.id}`);
       if (j.status === "in_corso") { render(j); pollTimer = setTimeout(tick, 1000); return; }
-      const success = j.status === "completato" && !(j.result && j.result.stopped_reason);
-      if (finale && success && activeGame && !gameBox.hidden) {
+      const game = activeGame;
+      if (jobSucceeded(j) && game && !gameBox.hidden && game.state !== "done" && (finale || game.playing)) {
         render(j);
         $("#job-cancel", container).disabled = true;
         toggle.disabled = true;
-        activeGame.finish(() => end(j));
+        game.finish(() => { if (activeGame === game) end(j); }, finaleTexts(j));
       } else end(j);
     } catch (e) { showError(e); }
   };
@@ -426,7 +435,11 @@ async function renderProject(pid, tab) {
   const job = await api("GET", `/api/projects/${enc(pid)}/job`);
   if (job && job.status === "in_corso") {
     ctx.box.innerHTML = `<p class="muted">Attendi la fine dell'operazione in corso…</p>`;
-    watchJob(ctx.jobBox, job, ctx.refresh);
+    // pagina riaperta durante un lavoro: a indicizzazione finita si va ai risultati
+    watchJob(ctx.jobBox, job, j => {
+      if (j.kind === "index" && jobSucceeded(j)) location.hash = `#/p/${enc(pid)}/results`;
+      else ctx.refresh();
+    }, { finale: job.kind === "index" });
     return;
   }
   if (!project.documents.length && tab !== "docs") {
@@ -959,7 +972,7 @@ async function renderIndex(ctx) {
       const job = await api("POST", `/api/projects/${enc(pid)}/index`, { force: changed.length > 0 });
       box.innerHTML = "";
       watchJob(ctx.jobBox, job, j => {
-        if (j.status === "completato" && j.result && !j.result.stopped_reason) location.hash = `#/p/${enc(pid)}/results`;
+        if (jobSucceeded(j)) location.hash = `#/p/${enc(pid)}/results`;
         else { if (j.result && j.result.stopped_reason) toast(j.result.stopped_reason, 8000); renderIndex(ctx); }
       }, { finale: true });
     });

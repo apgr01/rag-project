@@ -8,6 +8,8 @@
  *   const game = GeminiSnake.mount(container);
  *   game.setProgress(done, total);          // avanzamento vero del lavoro
  *   game.finish(() => vaiAiRisultati());    // animazione finale, poi callback
+ *   game.finish(cb, { title, text, labels }) // testi e etichette delle "cacchine" personalizzati
+ *   game.playing                            // true se l'utente ha iniziato a giocare
  *   game.destroy();
  */
 (function () {
@@ -50,6 +52,7 @@
     let cell = 20, dpr = 1;
     let snake, dir, queue, food, score, state, paused, tickMs, lastTick, frame, started;
     let particles = [], floats = [], poops = [], flash = 0, finishAt = 0, onFinished = null, fallback = null;
+    let finale = null;
     let record = readRecord();
     recordEl.textContent = record;
 
@@ -175,9 +178,14 @@
     }
 
     // ------------------------------------------------------------------ fine lavoro
-    function finish(callback) {
+    function finish(callback, opts = {}) {
       if (state === "finishing" || state === "done") return;
       onFinished = callback;
+      finale = {
+        title: opts.title || "Indicizzazione completata!",
+        text: opts.text || "{n} index.csv appena sfornati ✦",
+        labels: opts.labels || ["index.csv", "index.csv", "index.csv"],
+      };
       state = "finishing";
       started = true;
       paused = false;
@@ -200,7 +208,7 @@
         const back = { x: tail.x - prev.x, y: tail.y - prev.y };
         while (poops.length < wanted) {
           const pos = poopSpot(center(tail), back, poops.length);
-          poops.push({ x: pos.x, y: pos.y, born: now });
+          poops.push({ x: pos.x, y: pos.y, born: now, label: finale.labels[poops.length % finale.labels.length] });
           burst(pos, 6, ["#a8683a", "#ffd166"]);
         }
       }
@@ -210,7 +218,7 @@
         snake.forEach(s => burst(center(s), 8, COLORS.concat(["#ffffff", "#ffd166"])));
         snake = [];
         flash = 1.2;
-        message(`<div class="gs-done"><b>Indicizzazione completata!</b><br>${poops.length} index.csv appena sfornati ✦</div>`);
+        message(`<div class="gs-done"><b>${finale.title}</b><br>${finale.text.replace("{n}", poops.length)}</div>`);
       }
       if (t > 2.1 && state !== "done") {
         state = "done";
@@ -350,7 +358,7 @@
       ctx.fillStyle = "#ffffff";
       ctx.font = `700 ${Math.max(8, cell * 0.36)}px system-ui, sans-serif`;
       ctx.textAlign = "center";
-      ctx.fillText("index.csv", p.x, p.y + s * 1.55 + cell * 0.3);
+      ctx.fillText(p.label, p.x, p.y + s * 1.55 + cell * 0.3);
     }
 
     function roundRect(x, y, w, h, r) {
@@ -397,6 +405,7 @@
       setProgress,
       finish,
       get state() { return state; },
+      get playing() { return !!started; },
       get score() { return score; },
       destroy,
       // per i test
