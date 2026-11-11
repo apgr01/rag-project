@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -282,6 +283,9 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             raise HTTPException(404, "Operazione non trovata.")
         data = job.to_dict()
         data["usage"] = usage()
+        # messaggi di servizio arrivati durante il lavoro (sovraccarico, quote, ...)
+        data["events"] = [{"time": time.strftime("%H:%M:%S", time.localtime(e["ts"])), "text": e["text"]}
+                          for e in app.events_since(job.started_ts)]
         return data
 
     @api.post("/api/jobs/{job_id}/cancel")

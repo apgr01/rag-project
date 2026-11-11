@@ -171,21 +171,45 @@ async function refreshStatus() {
 // ------------------------------------------------------------------ lavori in corso
 function stopPolling() { if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; } }
 
+function elapsed(startedAt) {
+  const seconds = Math.max(0, Math.round((Date.now() - Date.parse(startedAt)) / 1000));
+  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min ${seconds % 60} s`;
+}
+
+/** Messaggi di servizio del lavoro (sovraccarico di Gemini, quote, rallentamenti), dal più recente. */
+function jobEvents(events) {
+  if (!events.length) return "";
+  const latest = events[events.length - 1];
+  const waiting = /sovraccarico|quota|rallento|errore temporaneo/i.test(latest.text);
+  return `
+    ${waiting ? `<div class="note warn small" style="margin-top:.75rem"><strong>${esc(latest.time)}</strong> ${esc(latest.text)}<br>
+      <span class="muted">Il programma riprova da solo; puoi aspettare oppure premere <em>Ferma</em>.</span></div>` : ""}
+    <details style="margin-top:.5rem"><summary class="small">Messaggi (${events.length})</summary>
+      <ul class="small muted" style="margin:.25rem 0">${events.slice().reverse().map(e =>
+        `<li><strong>${esc(e.time)}</strong> ${esc(e.text)}</li>`).join("")}</ul></details>`;
+}
+
 /** Mostra un lavoro in corso e lo segue fino alla fine; poi chiama onDone(job). */
 function watchJob(container, job, onDone) {
   stopPolling();
   const render = j => {
     const pct = j.total ? Math.round(100 * j.done / j.total) : 0;
+    const messagesOpen = !!(container.querySelector("details") || {}).open;   // si aggiorna ogni secondo
     container.innerHTML = `
       <div class="panel">
         <div class="row"><strong>${esc(j.label)}</strong><span class="spacer"></span>
           <button class="secondary" id="job-cancel" ${j.cancel_requested ? "disabled" : ""}>Ferma</button></div>
-        <p class="muted small">${esc(j.message || "")}${j.total ? ` — ${j.done}/${j.total} pagine` : ""}</p>
+        <p class="muted small">${esc(j.message || "")}${j.total ? ` — ${j.done}/${j.total} pagine` : ""}
+          · ${elapsed(j.started_at)}</p>
         <div class="progress ${j.total ? "" : "indeterminate"}"><div style="width:${pct}%"></div></div>
+        ${jobEvents(j.events || [])}
       </div>`;
+    const details = container.querySelector("details");
+    if (details) details.open = messagesOpen;
     $("#job-cancel", container).addEventListener("click", async () => {
       const ok = await confirmDialog({ title: "Fermare l'operazione?",
-        html: "<p>Le pagine già avviate vengono completate, le altre no. Il lavoro fatto resta salvato e si può riprendere.</p>",
+        html: `<p>Le attese in corso (sovraccarico di Gemini, quote) si interrompono subito; le richieste già
+               inviate terminano, le altre non partono. Il lavoro fatto resta salvato e si può riprendere.</p>`,
         ok: "Ferma", danger: true });
       if (ok) await busy(null, () => api("POST", `/api/jobs/${j.id}/cancel`));
     });

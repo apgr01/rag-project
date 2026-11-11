@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 import shutil
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -58,7 +60,19 @@ class App:
         self.documents = DocumentStore(self.workspace)
         self.projects = ProjectStore(self.workspace)
         self._client = client
+        self.events: deque[dict] = deque(maxlen=300)
         self.ensure_projects()
+
+    # --- messaggi per l'utente ----------------------------------------------------------
+    def emit(self, message: str) -> None:
+        """Messaggio di servizio (sovraccarico, quote, ...): nel terminale e per l'interfaccia web."""
+        from tqdm import tqdm
+
+        tqdm.write(message)
+        self.events.append({"ts": time.time(), "text": message})
+
+    def events_since(self, ts: float, limit: int = 15) -> list[dict]:
+        return [e for e in self.events if e["ts"] >= ts][-limit:]
 
     # --- progetti -------------------------------------------------------------------
     def ensure_projects(self) -> None:
@@ -199,7 +213,7 @@ class App:
 
                 self._client = FakeGeminiClient()
             else:
-                self._client = GeminiClient.from_env(self.config.gemini)
+                self._client = GeminiClient.from_env(self.config.gemini, log=self.emit)
         return self._client
 
     # --- primer ---------------------------------------------------------------------

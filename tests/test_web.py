@@ -231,3 +231,44 @@ def test_run_control_reports_progress():
 
     run_pages([1, 2, 3], lambda n: None, _Manifest(), 2, "x", False, control)
     assert events[0] == (0, 3) and events[-1] == (3, 3)
+
+
+def test_job_shows_service_messages_and_can_be_cancelled_during_overload(config, pdf_factory):
+    """Gemini sovraccarico durante l'analisi: i messaggi arrivano alla pagina e 'Ferma' interrompe subito."""
+    from google.genai import errors
+
+    from ragpdf.core.config import GeminiSettings
+    from ragpdf.core.gemini import GeminiClient
+
+    class Models:
+        calls = 0
+
+        def generate_content(self, model, contents, config):
+            Models.calls += 1
+            raise errors.ServerError(503, {"error": {"code": 503, "message": "high demand"}})
+
+    from types import SimpleNamespace as NS
+
+    app = App(config)
+    app._client = GeminiClient(["k"], GeminiSettings(retry_delay_seconds=1, requests_per_minute_per_key=600),
+                               client_factory=lambda k: NS(models=Models()), log=app.emit)
+    jobs = JobManager()
+    client = TestClient(create_app(app, jobs))
+    pid = new_project(client, "Lento", pdf_factory("Lento.pdf", pages=2))
+    client.post(f"/api/projects/{pid}/setup", json={"context_pages": "1"})
+    job = client.post(f"/api/projects/{pid}/setup/start").json()
+    for _ in range(100):                      # aspetta i primi messaggi di sovraccarico
+        data = client.get(f"/api/jobs/{job['id']}").json()
+        if len(data["events"]) >= 2:
+            break
+        time.sleep(0.05)
+    assert "sovraccarico" in data["events"][-1]["text"] and data["events"][-1]["time"]
+    start = time.time()
+    client.post(f"/api/jobs/{job['id']}/cancel")
+    for _ in range(100):
+        data = client.get(f"/api/jobs/{job['id']}").json()
+        if data["status"] != "in_corso":
+            break
+        time.sleep(0.05)
+    assert data["status"] == CANCELLED and time.time() - start < 3
+    assert client.get(f"/api/projects/{pid}/setup").json()["session"]["round"] is None
