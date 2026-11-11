@@ -50,6 +50,18 @@ from ragpdf.web.jobs import JobConflictError, JobManager
 
 STATIC_DIR = Path(__file__).parent / "static"
 MAX_ROWS_IN_VIEW = 300
+# l'interfaccia cambia a ogni aggiornamento del programma: il browser deve sempre ricontrollare
+# i file (risposta "304 non modificato" se uguali), altrimenti può mescolare versioni diverse
+NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+class _UiFiles(StaticFiles):
+    """File statici dell'interfaccia, sempre ricontrollati dal browser."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers.update(NO_CACHE)
+        return response
 
 
 def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
@@ -657,9 +669,9 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
     # ------------------------------------------------------------------ pagina
     @api.get("/")
     def index_html():
-        return FileResponse(STATIC_DIR / "index.html")
+        return FileResponse(STATIC_DIR / "index.html", headers=NO_CACHE)
 
-    api.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    api.mount("/static", _UiFiles(directory=STATIC_DIR), name="static")
     return api
 
 

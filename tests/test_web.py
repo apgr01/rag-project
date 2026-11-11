@@ -37,7 +37,11 @@ def test_page_and_status(web):
     assert "ragpdf" in client.get("/").text
     assert client.get("/static/app.js").status_code == 200
     assert "GeminiSnake" in client.get("/static/snake.js").text
-    assert "/static/snake.js" in client.get("/").text
+    page = client.get("/")
+    assert "/static/snake.js" in page.text
+    # il browser deve ricontrollare l'interfaccia, per non mescolare versioni vecchie e nuove
+    assert page.headers["cache-control"] == "no-cache"
+    assert client.get("/static/app.js").headers["cache-control"] == "no-cache"
     assert client.get("/api/status").json()["model"]
     assert client.post("/api/projects", json={"name": " "}).status_code == 400
 

@@ -197,6 +197,18 @@ function snakeHidden() { try { return localStorage.getItem(SNAKE_HIDDEN_KEY) ===
 function setSnakeHidden(v) { try { localStorage.setItem(SNAKE_HIDDEN_KEY, v ? "1" : "0"); } catch { /* ignorato */ } }
 function stopGame() { if (activeGame) { activeGame.destroy(); activeGame = null; } }
 
+/** Carica snake.js se la pagina non l'ha già fatto (es. index.html vecchia nella cache). */
+function loadSnake() {
+  if (window.GeminiSnake) return Promise.resolve(true);
+  return new Promise(resolve => {
+    const script = document.createElement("script");
+    script.src = "/static/snake.js";
+    script.onload = () => resolve(!!window.GeminiSnake);
+    script.onerror = () => resolve(false);
+    document.head.appendChild(script);
+  });
+}
+
 /** Mostra un lavoro in corso e lo segue fino alla fine; poi chiama onDone(job).
  *  Durante l'attesa c'è Gemini Snake (si può nascondere). Con finale=true, se il lavoro
  *  finisce bene, il serpente "produce" gli indici ed esplode prima di chiamare onDone. */
@@ -219,9 +231,12 @@ function watchJob(container, job, onDone, { finale = false } = {}) {
   const showGame = visible => {
     gameBox.hidden = !visible;
     toggle.textContent = visible ? "Nascondi il gioco" : "Gioca mentre aspetti";
-    if (visible && !activeGame && window.GeminiSnake) {
-      activeGame = GeminiSnake.mount(gameBox);
-      activeGame.setProgress(current.done, current.total);
+    if (visible && !activeGame) {
+      loadSnake().then(ok => {
+        if (!ok || activeGame || gameBox.hidden || !gameBox.isConnected) return;
+        activeGame = GeminiSnake.mount(gameBox);
+        activeGame.setProgress(current.done, current.total);
+      });
     }
   };
   toggle.addEventListener("click", () => { setSnakeHidden(!gameBox.hidden); showGame(gameBox.hidden); });
