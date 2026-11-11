@@ -21,7 +21,13 @@ from dataclasses import dataclass, field
 
 from tqdm import tqdm
 
-from ragpdf.core.gemini import GeminiNotConfiguredError, QuotaExhaustedError
+from ragpdf.core.gemini import (
+    GeminiNotConfiguredError,
+    OperationCancelledError,
+    QuotaExhaustedError,
+    ServiceUnavailableError,
+    cancellation,
+)
 from ragpdf.core.manifest import Manifest
 
 MAX_CONSECUTIVE_FAILURES = 5
@@ -84,8 +90,11 @@ def run_pages(
         if stop.is_set() or control.cancel.is_set():
             raise _Stop()
         try:
-            worker(n)
-        except (QuotaExhaustedError, GeminiNotConfiguredError) as e:
+            with cancellation(control.cancel):
+                worker(n)
+        except OperationCancelledError as e:
+            raise _Stop() from e          # fermato dall'utente: la pagina resta da fare
+        except (QuotaExhaustedError, ServiceUnavailableError, GeminiNotConfiguredError) as e:
             # Non è colpa della pagina: non si conta come tentativo fallito.
             with lock:
                 if report.stopped_reason is None:

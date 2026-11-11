@@ -12,6 +12,7 @@ lanciare per errore due indicizzazioni dello stesso catalogo.
 from __future__ import annotations
 
 import threading
+import time
 import traceback
 import uuid
 from collections.abc import Callable
@@ -19,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ragpdf.core.fileio import utc_now
+from ragpdf.core.gemini import OperationCancelledError, cancellation
 from ragpdf.core.page_runner import RunControl
 
 RUNNING, DONE, ERROR, CANCELLED = "in_corso", "completato", "errore", "annullato"
@@ -41,6 +43,7 @@ class Job:
     error: str | None = None
     result: Any = None
     started_at: str = field(default_factory=utc_now)
+    started_ts: float = field(default_factory=time.time)
     finished_at: str | None = None
     control: RunControl = field(default_factory=RunControl)
 
@@ -103,8 +106,12 @@ class JobManager:
 
         def run() -> None:
             try:
-                job.result = work(job)
+                with cancellation(job.control.cancel):
+                    job.result = work(job)
                 job.status = CANCELLED if job.control.cancel.is_set() else DONE
+            except OperationCancelledError:
+                job.status = CANCELLED
+                job.message = "Fermato dall'utente"
             except Exception as e:  # l'errore viene mostrato nella pagina
                 job.status = ERROR
                 job.error = str(e) or type(e).__name__
@@ -123,5 +130,5 @@ class JobManager:
         job = self._jobs.get(job_id)
         if job is not None and job.status == RUNNING:
             job.control.cancel.set()
-            job.message = "Annullamento in corso: termino le pagine già avviate..."
+            job.message = "Arresto in corso: le attese si interrompono subito, le richieste già inviate terminano..."
         return job

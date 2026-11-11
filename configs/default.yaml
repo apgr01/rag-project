@@ -17,7 +17,9 @@ gemini:
   max_requests_per_minute_total:   # ritmo massimo complessivo; vuoto = si adatta da solo alle quote
                                    # (le quote valgono per PROGETTO Google: chiavi dello stesso
                                    #  progetto le condividono)
-  max_retries: 6                   # tentativi per richiesta (errori temporanei, quote)
+  max_retries: 6                   # tentativi per errori di rete/server (non per sovraccarico o quote)
+  retry_delay_seconds: 5           # attesa fissa prima di riprovare (es. 503 "high demand")
+  max_wait_minutes: 10             # oltre questa attesa continua il lavoro si ferma (si riprende rilanciando)
   quota_cooldown_seconds: 60       # attesa dopo una quota superata, se Google non la indica
 
 render:

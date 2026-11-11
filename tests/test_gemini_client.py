@@ -93,18 +93,50 @@ def test_daily_quota_excludes_key_and_finally_raises():
     assert all(math.isinf(s.paused_until) for s in client._slots)
 
 
-def test_server_errors_are_retried_with_backoff():
-    client, clock = make_client(["k1"])
+def overloaded():
+    return errors.ServerError(503, {"error": {"code": 503, "message": "This model is currently experiencing "
+                                              "high demand.", "status": "UNAVAILABLE"}})
+
+
+def test_overload_is_retried_at_fixed_interval_without_failing():
+    """503 'high demand': attese fisse (non raddoppiate) e nessun tentativo consumato."""
+    client, clock = make_client(["k1"], GeminiSettings(requests_per_minute_per_key=600, retry_delay_seconds=5))
     attempts = {"n": 0}
 
     def action(key):
         attempts["n"] += 1
-        if attempts["n"] < 3:
-            raise errors.ServerError(503, {"error": {"code": 503, "message": "overloaded"}})
+        if attempts["n"] <= 10:                 # più dei 6 tentativi: il sovraccarico non li consuma
+            raise overloaded()
         return "ok"
 
     assert client._call(action) == "ok"
-    assert 2 in clock.sleeps and 4 in clock.sleeps
+    waits = [s for s in clock.sleeps if s >= 5]
+    assert len(waits) == 10 and all(5 <= s <= 6 for s in waits)
+
+
+def test_overload_that_lasts_too_long_stops_cleanly():
+    from ragpdf.core.gemini import ServiceUnavailableError
+
+    client, clock = make_client(["k1", "k2"], GeminiSettings(retry_delay_seconds=30, max_wait_minutes=2))
+
+    def action(key):
+        raise overloaded()
+
+    with pytest.raises(ServiceUnavailableError, match="oltre 2 minuti"):
+        client._call(action)
+    assert clock.now < 4 * 60
+
+
+def test_other_server_errors_use_fixed_delay_and_attempt_limit():
+    client, clock = make_client(["k1"], GeminiSettings(retry_delay_seconds=3, max_retries=3))
+
+    def action(key):
+        raise errors.ServerError(500, {"error": {"code": 500, "message": "internal"}})
+
+    with pytest.raises(GeminiError, match="ripetuti tentativi"):
+        client._call(action)
+    waits = [s for s in clock.sleeps if s >= 3]
+    assert len(waits) == 3 and all(3 <= s <= 4 for s in waits)
 
 
 def test_bad_request_fails_immediately():
@@ -282,7 +314,7 @@ def test_quota_that_never_resets_stops_cleanly():
     def action(key):
         raise quota_error(daily=False, retry="60s")
 
-    with pytest.raises(QuotaExhaustedError, match="oltre 15 minuti"):
+    with pytest.raises(QuotaExhaustedError, match="oltre 10 minuti"):
         client._call(action)
 
 

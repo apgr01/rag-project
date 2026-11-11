@@ -49,7 +49,15 @@ class GeminiSettings(_Section):
         gt=0,
         description="Ritmo massimo complessivo (tutte le chiavi). Vuoto = adattato automaticamente.",
     )
-    max_retries: int = Field(6, ge=1, description="Tentativi per singola richiesta.")
+    max_retries: int = Field(
+        6, ge=1, description="Tentativi per errori di rete o del server diversi dal sovraccarico."
+    )
+    retry_delay_seconds: float = Field(
+        5, ge=1, le=300, description="Attesa fissa prima di riprovare dopo un errore temporaneo (es. 503)."
+    )
+    max_wait_minutes: float = Field(
+        10, gt=0, description="Oltre questa attesa continua (sovraccarico o quote) il lavoro si ferma."
+    )
     quota_cooldown_seconds: int = Field(
         60, ge=1, description="Pausa dopo una quota al minuto superata, se Google non indica l'attesa."
     )

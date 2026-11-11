@@ -15,8 +15,10 @@ il limite è condiviso, non per thread.
 - ``429`` quota al minuto → la chiave va in pausa per ``quota_cooldown_seconds``
   e si riprova con un'altra;
 - ``429`` quota giornaliera → la chiave viene esclusa fino alla fine dell'esecuzione;
-- ``500/502/503/504`` e problemi di rete → si riprova dopo un'attesa crescente
-  (*backoff esponenziale*: 2s, 4s, 8s, ...);
+- ``503`` sovraccarico ("high demand") → si riprova a intervallo fisso
+  (``retry_delay_seconds``) senza consumare tentativi; se dura oltre ``max_wait_minutes``
+  il lavoro si ferma in modo ordinato (:class:`ServiceUnavailableError`);
+- ``500/502/504`` e problemi di rete → si riprova a intervallo fisso, fino a ``max_retries``;
 - altri errori (es. ``400`` richiesta non valida) → errore immediato.
 
 Se tutte le chiavi hanno esaurito la quota giornaliera viene sollevata
@@ -29,10 +31,12 @@ from __future__ import annotations
 import json
 import math
 import os
+import random
 import re
 import threading
 import time
 from collections.abc import Callable, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -58,6 +62,36 @@ class QuotaExhaustedError(GeminiError):
 
 class GeminiNotConfiguredError(GeminiError):
     """Nessuna chiave API disponibile."""
+
+
+class ServiceUnavailableError(GeminiError):
+    """Gemini è sovraccarico da troppo tempo: riprovare più tardi (non è colpa delle pagine)."""
+
+
+class OperationCancelledError(GeminiError):
+    """L'utente ha chiesto di fermare l'operazione."""
+
+
+# --- annullamento ------------------------------------------------------------------------
+# Ogni operazione in background registra, nel proprio thread, l'evento che l'interfaccia
+# imposta quando l'utente preme "Ferma". Il client lo controlla prima di ogni tentativo e
+# durante le attese (sovraccarico, quote, ritmo): l'interruzione è immediata.
+_cancel_state = threading.local()
+
+
+@contextmanager
+def cancellation(event: threading.Event | None):
+    """Associa ``event`` alle chiamate a Gemini fatte da questo thread."""
+    previous = getattr(_cancel_state, "event", None)
+    _cancel_state.event = event
+    try:
+        yield
+    finally:
+        _cancel_state.event = previous
+
+
+def _current_cancel() -> threading.Event | None:
+    return getattr(_cancel_state, "event", None)
 
 
 class IncompleteResponseError(GeminiError):
@@ -325,7 +359,8 @@ class _AdaptiveLimit:
 # --------------------------------------------------------------------------------------
 # Client
 # --------------------------------------------------------------------------------------
-MAX_QUOTA_WAIT_SECONDS = 15 * 60
+OVERLOAD_STATUS = {503}
+_OVERLOAD_WORDS = ("high demand", "overloaded", "unavailable")
 
 
 def _default_log(message: str) -> None:
@@ -396,7 +431,7 @@ class GeminiClient:
                 slot.client = self._client_factory(slot.key)
         wait = start - now
         if wait > 0:
-            self._sleep(wait)
+            self._wait(wait)
         return slot
 
     def _on_quota_error(self, slot: _KeySlot, failure: _APIFailure) -> None:
@@ -420,10 +455,13 @@ class GeminiClient:
     def _call(self, action: Callable[[Any], Any]) -> Any:
         """Esegue ``action(client_sdk)`` con rotazione delle chiavi, ritmo adattivo e tentativi."""
         last: _APIFailure | None = None
-        errors = 0                      # errori temporanei (contano come tentativi)
-        quota_since: float | None = None
+        errors = 0                      # errori di rete/server (contano come tentativi)
+        waiting_since: float | None = None   # inizio di un'attesa per quote o sovraccarico
+        overload_attempts = 0
+        max_wait = self.settings.max_wait_minutes * 60
 
         while errors < self.settings.max_retries:
+            self._check_cancel()
             slot = self._acquire()
             try:
                 result = action(slot.client)
@@ -433,23 +471,42 @@ class GeminiClient:
                     raise
                 last = failure
 
+                now = self._clock()
                 if failure.status == 429:
                     # Non è colpa della richiesta: si aspetta e si riprova, senza consumare tentativi.
                     self._on_quota_error(slot, failure)
-                    now = self._clock()
-                    quota_since = quota_since if quota_since is not None else now
-                    if now - quota_since > MAX_QUOTA_WAIT_SECONDS:
+                    waiting_since = waiting_since if waiting_since is not None else now
+                    if now - waiting_since > max_wait:
                         raise QuotaExhaustedError(
-                            f"Quota esaurita da oltre {MAX_QUOTA_WAIT_SECONDS // 60} minuti. Rilancia più "
+                            f"Quota esaurita da oltre {self.settings.max_wait_minutes:g} minuti. Rilancia più "
                             "tardi: il lavoro riprenderà da dove si è fermato."
                         ) from exc
                     continue
 
+                if self._is_overloaded(failure):
+                    # Sovraccarico momentaneo dei server di Google (uguale per tutte le chiavi):
+                    # si riprova a intervallo FISSO, senza consumare tentativi, finché dura meno
+                    # di max_wait_minutes; poi ci si ferma in modo ordinato.
+                    waiting_since = waiting_since if waiting_since is not None else now
+                    overload_attempts += 1
+                    waited = now - waiting_since
+                    if waited > max_wait:
+                        raise ServiceUnavailableError(
+                            f"Gemini è sovraccarico da oltre {self.settings.max_wait_minutes:g} minuti. "
+                            "Riprova più tardi: il lavoro riprenderà da dove si è fermato."
+                        ) from exc
+                    delay = self._retry_delay()
+                    self._log(f"Gemini sovraccarico (503, alta richiesta): riprovo tra {delay:.0f}s "
+                              f"(tentativo {overload_attempts}, in attesa da {waited:.0f}s).")
+                    self._wait(delay)
+                    continue
+
                 if failure.status is None or failure.status in RETRYABLE_STATUS:
                     errors += 1
-                    delay = min(2 ** errors, 60)
-                    self._log(f"[chiave {slot.index}] errore temporaneo ({failure}); riprovo tra {delay}s.")
-                    self._sleep(delay)
+                    delay = self._retry_delay()
+                    self._log(f"[chiave {slot.index}] errore temporaneo ({failure}); riprovo tra {delay:.0f}s "
+                              f"(tentativo {errors} di {self.settings.max_retries}).")
+                    self._wait(delay)
                     continue
 
                 raise GeminiError(f"Gemini ha rifiutato la richiesta ({failure}).") from exc
@@ -460,6 +517,32 @@ class GeminiClient:
                 return result
 
         raise GeminiError(f"Richiesta fallita dopo ripetuti tentativi: {last}")
+
+    def _check_cancel(self) -> None:
+        event = _current_cancel()
+        if event is not None and event.is_set():
+            raise OperationCancelledError("Operazione fermata dall'utente.")
+
+    def _wait(self, seconds: float) -> None:
+        """Attesa interrompibile: se l'utente preme "Ferma" si esce subito."""
+        event = _current_cancel()
+        if event is not None and self._sleep is time.sleep:
+            if event.wait(seconds):
+                raise OperationCancelledError("Operazione fermata dall'utente.")
+            return
+        self._sleep(seconds)
+        self._check_cancel()
+
+    @staticmethod
+    def _is_overloaded(failure: _APIFailure) -> bool:
+        if failure.status in OVERLOAD_STATUS:
+            return True
+        text = failure.message.lower()
+        return failure.status in RETRYABLE_STATUS and any(w in text for w in _OVERLOAD_WORDS)
+
+    def _retry_delay(self) -> float:
+        """Attesa fissa con una piccola variazione casuale, per non far ripartire tutto insieme."""
+        return self.settings.retry_delay_seconds + random.uniform(0, 1)
 
     # --- costruzione delle richieste ----------------------------------------------
     def _image_parts(self, images: Sequence[Path]) -> list[Any]:
@@ -498,7 +581,7 @@ class GeminiClient:
                 return uploaded
             if waited >= timeout:
                 raise ConnectionError("il file caricato non è diventato disponibile in tempo")
-            self._sleep(3)
+            self._wait(3)
             waited += 3
             uploaded = client.files.get(name=uploaded.name)
 
