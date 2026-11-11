@@ -61,6 +61,7 @@ Decisi insieme e da rispettare in tutti gli step:
   prova su ognuno, indicizzazione unica, **CSV unico** e CSV per PDF.
 - [x] **Pagina di ricerca** HTML autonoma sul CSV unico (ricerca tollerante, filtri, link ai
   PDF, download dei risultati).
+- [x] **Gemini Snake**: mini gioco nella pagina di attesa, per divertimento.
 - [x] **Quote**: classificazione dai dettagli dell'errore e ritmo complessivo adattivo
   (emerso dalla prima indicizzazione reale con 10 chiavi dello stesso progetto).
 - [x] **Consumo e costi**: riepilogo di richieste e token; opzione `thinking_level`.

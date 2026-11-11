@@ -6,6 +6,9 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
 ## [Non rilasciato] — 0.2.0
 
 ### Aggiunto
+- **Gemini Snake**: mini gioco durante l'attesa dei lavori di Gemini nell'interfaccia, con
+  l'avanzamento vero, ripartenza automatica se si perde e animazione finale che porta ai
+  risultati. Si può nascondere (scelta ricordata).
 - **Progetti di indicizzazione**: più PDF con la stessa struttura, primer e specifica comuni,
   note e pagine proprie per singolo PDF (anche proposte da Gemini), configurazione guidata con
   pagine da più PDF e prova su ognuno, **CSV unico** con la colonna del file e CSV per PDF.

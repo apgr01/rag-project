@@ -36,6 +36,8 @@ def test_page_and_status(web):
     client, _, _ = web
     assert "ragpdf" in client.get("/").text
     assert client.get("/static/app.js").status_code == 200
+    assert "GeminiSnake" in client.get("/static/snake.js").text
+    assert "/static/snake.js" in client.get("/").text
     assert client.get("/api/status").json()["model"]
     assert client.post("/api/projects", json={"name": " "}).status_code == 400
 

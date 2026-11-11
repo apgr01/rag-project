@@ -118,6 +118,12 @@ di un PDF andrà reindicizzato solo quel PDF.
 terminale con `ragpdf ui` è aperto, e riaprendo la pagina lo ritrovi. Se hai cambiato primer,
 specifica o note, vengono rifatti **solo** i PDF interessati.
 
+Per ingannare l'attesa, sotto la barra c'è **Gemini Snake**: il serpente è Gemini che
+"ingerisce" le pagine PDF (frecce o WASD, spazio per la pausa, sul telefono si scorre il dito).
+Se perdi mentre Gemini lavora si ricomincia da soli; a fine indicizzazione il serpente produce
+gli `index.csv`, esplode e si passa ai risultati. *Nascondi il gioco* lo toglie e la scelta
+viene ricordata; il gioco non influisce in alcun modo sul lavoro.
+
 **3 · Risultati.**
 - **CSV unico** del progetto (colonna del file d'origine per sapere da quale PDF viene ogni
   riga) e un CSV per ciascun PDF;

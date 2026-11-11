@@ -29,7 +29,8 @@ src/ragpdf/
 ├── web/                interfaccia grafica (ragpdf ui)
 │   ├── server.py       API JSON (FastAPI) sopra app.py e setup_session.py
 │   ├── jobs.py         lavori in background: avanzamento, annullamento
-│   └── static/         pagina HTML, CSS e JavaScript (senza librerie esterne)
+│   └── static/         pagina HTML, CSS e JavaScript (senza librerie esterne);
+│                       snake.js è il mini gioco mostrato durante l'attesa
 ├── app.py              strato applicativo: collega i pezzi, usato dalla CLI
 ├── setup_session.py    logica della configurazione guidata (giri, anteprima, salvataggio)
 ├── primer.py           bozza del primer da PDF intero o da un estratto

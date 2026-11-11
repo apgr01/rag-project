@@ -189,40 +189,86 @@ function jobEvents(events) {
         `<li><strong>${esc(e.time)}</strong> ${esc(e.text)}</li>`).join("")}</ul></details>`;
 }
 
-/** Mostra un lavoro in corso e lo segue fino alla fine; poi chiama onDone(job). */
-function watchJob(container, job, onDone) {
+// ------------------------------------------------------------------ mini gioco durante l'attesa
+const SNAKE_HIDDEN_KEY = "ragpdf:snake-hidden";
+let activeGame = null;
+
+function snakeHidden() { try { return localStorage.getItem(SNAKE_HIDDEN_KEY) === "1"; } catch { return false; } }
+function setSnakeHidden(v) { try { localStorage.setItem(SNAKE_HIDDEN_KEY, v ? "1" : "0"); } catch { /* ignorato */ } }
+function stopGame() { if (activeGame) { activeGame.destroy(); activeGame = null; } }
+
+/** Mostra un lavoro in corso e lo segue fino alla fine; poi chiama onDone(job).
+ *  Durante l'attesa c'è Gemini Snake (si può nascondere). Con finale=true, se il lavoro
+ *  finisce bene, il serpente "produce" gli indici ed esplode prima di chiamare onDone. */
+function watchJob(container, job, onDone, { finale = false } = {}) {
   stopPolling();
+  stopGame();
+  // struttura fissa: lo stato si aggiorna ogni secondo, il gioco resta com'è
+  container.innerHTML = `
+    <div class="panel">
+      <div class="row"><strong id="job-label"></strong><span class="spacer"></span>
+        <button class="secondary" id="job-game-toggle" type="button"></button>
+        <button class="secondary" id="job-cancel" type="button">Ferma</button></div>
+      <div id="job-status"></div>
+      <div id="job-game"></div>
+    </div>`;
+  const status = $("#job-status", container), gameBox = $("#job-game", container);
+  const toggle = $("#job-game-toggle", container);
+  let current = job;
+
+  const showGame = visible => {
+    gameBox.hidden = !visible;
+    toggle.textContent = visible ? "Nascondi il gioco" : "Gioca mentre aspetti";
+    if (visible && !activeGame && window.GeminiSnake) {
+      activeGame = GeminiSnake.mount(gameBox);
+      activeGame.setProgress(current.done, current.total);
+    }
+  };
+  toggle.addEventListener("click", () => { setSnakeHidden(!gameBox.hidden); showGame(gameBox.hidden); });
+  showGame(!snakeHidden());
+
+  $("#job-cancel", container).addEventListener("click", async () => {
+    const ok = await confirmDialog({ title: "Fermare l'operazione?",
+      html: `<p>Le attese in corso (sovraccarico di Gemini, quote) si interrompono subito; le richieste già
+             inviate terminano, le altre non partono. Il lavoro fatto resta salvato e si può riprendere.</p>`,
+      ok: "Ferma", danger: true });
+    if (ok) await busy(null, () => api("POST", `/api/jobs/${current.id}/cancel`));
+  });
+
   const render = j => {
+    current = j;
     const pct = j.total ? Math.round(100 * j.done / j.total) : 0;
-    const messagesOpen = !!(container.querySelector("details") || {}).open;   // si aggiorna ogni secondo
-    container.innerHTML = `
-      <div class="panel">
-        <div class="row"><strong>${esc(j.label)}</strong><span class="spacer"></span>
-          <button class="secondary" id="job-cancel" ${j.cancel_requested ? "disabled" : ""}>Ferma</button></div>
-        <p class="muted small">${esc(j.message || "")}${j.total ? ` — ${j.done}/${j.total} pagine` : ""}
-          · ${elapsed(j.started_at)}</p>
-        <div class="progress ${j.total ? "" : "indeterminate"}"><div style="width:${pct}%"></div></div>
-        ${jobEvents(j.events || [])}
-      </div>`;
-    const details = container.querySelector("details");
+    const messagesOpen = !!(status.querySelector("details") || {}).open;   // si aggiorna ogni secondo
+    $("#job-label", container).textContent = j.label;
+    $("#job-cancel", container).disabled = !!j.cancel_requested;
+    status.innerHTML = `
+      <p class="muted small">${esc(j.message || "")}${j.total ? ` — ${j.done}/${j.total} pagine` : ""}
+        · ${elapsed(j.started_at)}</p>
+      <div class="progress ${j.total ? "" : "indeterminate"}"><div style="width:${pct}%"></div></div>
+      ${jobEvents(j.events || [])}`;
+    const details = status.querySelector("details");
     if (details) details.open = messagesOpen;
-    $("#job-cancel", container).addEventListener("click", async () => {
-      const ok = await confirmDialog({ title: "Fermare l'operazione?",
-        html: `<p>Le attese in corso (sovraccarico di Gemini, quote) si interrompono subito; le richieste già
-               inviate terminano, le altre non partono. Il lavoro fatto resta salvato e si può riprendere.</p>`,
-        ok: "Ferma", danger: true });
-      if (ok) await busy(null, () => api("POST", `/api/jobs/${j.id}/cancel`));
-    });
+    if (activeGame) activeGame.setProgress(j.done, j.total);
+  };
+  const end = j => {
+    container.innerHTML = "";
+    stopGame();
+    refreshStatus();
+    if (j.status === "errore") toast(`Operazione non riuscita: ${j.error}`, 8000);
+    else if (j.status === "annullato") toast("Operazione fermata. Il lavoro fatto è salvato.");
+    onDone(j);
   };
   const tick = async () => {
     try {
       const j = await api("GET", `/api/jobs/${job.id}`);
       if (j.status === "in_corso") { render(j); pollTimer = setTimeout(tick, 1000); return; }
-      container.innerHTML = "";
-      refreshStatus();
-      if (j.status === "errore") toast(`Operazione non riuscita: ${j.error}`, 8000);
-      else if (j.status === "annullato") toast("Operazione fermata. Il lavoro fatto è salvato.");
-      onDone(j);
+      const success = j.status === "completato" && !(j.result && j.result.stopped_reason);
+      if (finale && success && activeGame && !gameBox.hidden) {
+        render(j);
+        $("#job-cancel", container).disabled = true;
+        toggle.disabled = true;
+        activeGame.finish(() => end(j));
+      } else end(j);
     } catch (e) { showError(e); }
   };
   render(job);
@@ -244,6 +290,7 @@ async function route() {
   }
   lastHash = location.hash;
   stopPolling();
+  stopGame();
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   try {
     if (parts[0] === "p" && parts[1]) await renderProject(parts[1], parts[2] || "docs");
@@ -899,7 +946,7 @@ async function renderIndex(ctx) {
       watchJob(ctx.jobBox, job, j => {
         if (j.status === "completato" && j.result && !j.result.stopped_reason) location.hash = `#/p/${enc(pid)}/results`;
         else { if (j.result && j.result.stopped_reason) toast(j.result.stopped_reason, 8000); renderIndex(ctx); }
-      });
+      }, { finale: true });
     });
   });
 }
