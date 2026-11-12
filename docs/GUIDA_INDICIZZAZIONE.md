@@ -93,7 +93,30 @@ La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **carte
      vedere una pagina, **Maiusc+clic** per selezionare un intervallo, poi scegli il tag e
      aggiungi la collezione (es. 1-2 *Copertina*, 3-4 *Indice*, 9-250 *Da indicizzare*,
      12-13 *Pagina d'esempio*). Una pagina può stare in più collezioni.
-5. **Crea il progetto**: seleziona i cataloghi simili e premi *Crea progetto…*. Le pagine *da
+5. **Fatti aiutare da Gemini** (pannello *✨ Analisi con Gemini* nella scheda del catalogo):
+   - scegli le **pagine da inviare**: scrivile (`1-6, 20, 45-46`), oppure selezionale nel
+     visualizzatore e premi *+ Selezione del visualizzatore*; *Selezione rapida* mette le prime
+     6 pagine più 8 distribuite; in alternativa spunta *Invia tutto il PDF*. Le pagine scelte
+     hanno il simbolo ✉ nelle miniature. Di solito bastano copertina, indice, legenda e
+     qualche pagina tipo: dall'indice Gemini deduce anche le parti che non vede;
+   - le **istruzioni** sono modificabili: *Salva come mio predefinito* le ricorda per le
+     prossime analisi, *Ripristina quello di fabbrica* torna all'originale. Pagine inviate, tag
+     disponibili e formato della risposta li aggiunge il programma (*Vedi il prompt* mostra il
+     testo esatto);
+   - con *Tieni conto della scheda attuale* Gemini completa e corregge quello che hai già
+     scritto;
+   - la risposta diventa una **proposta da rivedere**: scegli la descrizione (non usare,
+     sostituisci, aggiungi in fondo), i tag, i campi e le collezioni da applicare. Le
+     collezioni marcate *dedotta* sono state ricavate dall'indice senza vedere le pagine:
+     controllale. Nella scheda restano segnate *Gemini* o *dedotta*;
+   - ogni analisi resta in archivio (*Analisi archiviate*) e si può rivedere e applicare anche
+     dopo; nella biblioteca i cataloghi con una proposta in sospeso hanno il badge
+     *✨ proposta da rivedere*.
+
+   Se Gemini rifiuta la richiesta perché troppo pesante (troppe pagine o file troppo
+   grande), il messaggio lo dice: scegli meno pagine. Prima dell'invio il programma blocca i
+   PDF oltre 1000 pagine o circa 50 MB e avvisa per gli allegati pesanti.
+6. **Crea il progetto**: seleziona i cataloghi simili e premi *Crea progetto…*. Le pagine *da
    indicizzare* diventano le pagine del progetto, le *pagine d'esempio* sono già scelte nella
    configurazione guidata e campi e descrizioni compongono l'obiettivo proposto (modificabile).
 

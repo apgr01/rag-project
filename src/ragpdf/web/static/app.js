@@ -201,6 +201,8 @@ function jobSucceeded(j) { return j.status === "completato" && !(j.result && j.r
 /** Testi dell'animazione finale secondo il tipo di lavoro. */
 function finaleTexts(j) {
   if (j.kind === "index") return {};                                   // quelli predefiniti
+  if (j.kind === "analysis") return { title: "Analisi pronta!", text: "La proposta di Gemini ti aspetta ✦",
+                                      labels: ["descrizione", "campi", "pagine"] };
   return { title: "Gemini ha finito!", text: "Primer, specifica e anteprima appena sfornati ✦",
            labels: ["primer", "specifica", "anteprima"] };
 }

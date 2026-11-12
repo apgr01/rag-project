@@ -91,6 +91,7 @@ class PageCollection(BaseModel):
     end: int
     tag: str
     comment: str = ""
+    origin: str = ""        # "" = scritta dall'utente, "gemini" = proposta, "dedotta" = dedotta dall'indice
     created_at: str = Field(default_factory=utc_now)
 
     @field_validator("tag")
@@ -168,7 +169,7 @@ class Library:
         card = self.card(doc)
         coll = self._find_collection(card, coll_id)
         updated = PageCollection(id=coll.id, start=start, end=end, tag=tag, comment=comment.strip(),
-                                 created_at=coll.created_at)
+                                 origin=coll.origin, created_at=coll.created_at)
         card.collections = [updated if c.id == coll_id else c for c in card.collections]
         self.save_card(doc, card)
         return updated

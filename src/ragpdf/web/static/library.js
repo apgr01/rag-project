@@ -24,6 +24,7 @@ const parentFolder = path => path.includes("/") ? path.slice(0, path.lastIndexOf
 const folderName = path => path ? path.slice(path.lastIndexOf("/") + 1) : "Biblioteca";
 const inFolder = (folder, path) => folder === path || folder.startsWith(path + "/");
 const joinFolder = (a, b) => [a, b].filter(Boolean).join("/");
+const sizeText = mb => mb < 0.1 ? "meno di 0,1 MB" : `${String(mb).replace(".", ",")} MB`;
 
 function tagBadges(tags) {
   return tags.map(t => `<span class="badge tag">${esc(t)}</span>`).join(" ");
@@ -187,7 +188,8 @@ async function renderLibrary(folder) {
               <td>${tagBadges(c.tags)}</td>
               <td class="small">${c.fields ? `${c.fields} campi<br>` : ""}${c.collections ? `${c.collections} collezioni` : ""}
                 ${c.to_index ? `<br><span class="badge ok">${c.to_index} pag. da indicizzare</span>` : ""}
-                ${!c.fields && !c.collections && !c.description ? `<span class="muted">da studiare</span>` : ""}</td>
+                ${c.proposals ? `<br><span class="badge warn">✨ proposta da rivedere</span>` : ""}
+                ${!c.fields && !c.collections && !c.description && !c.proposals ? `<span class="muted">da studiare</span>` : ""}</td>
               <td class="small">${c.projects.map(p => `<a href="#/p/${enc(p.id)}/docs">${esc(p.name)}</a>`).join("<br>") || "—"}</td>
               ${filtering ? `<td class="small"><a href="${folderHash(c.folder)}">${esc(c.folder || "Biblioteca")}</a></td>` : ""}
             </tr>`).join("")}</tbody></table></div>`
@@ -341,6 +343,8 @@ async function renderCatalog(id) {
       <a href="/api/documents/${enc(c.id)}/pdf" target="_blank" rel="noopener">apri il PDF</a>
       ${c.scanned ? ` · <span class="badge warn">scansione senza testo</span>` : ""}
       ${c.projects.length ? ` · progetti: ${c.projects.map(p => `<a href="#/p/${enc(p.id)}/docs">${esc(p.name)}</a>`).join(", ")}` : ""}</p>
+    <div id="job"></div>
+    <div id="proposal"></div>
 
     <div class="grid2">
       <div class="panel">
@@ -368,6 +372,35 @@ async function renderCatalog(id) {
     <div class="row" style="margin:-.5rem 0 16px"><span class="spacer"></span>
       <button class="secondary" id="cat-delete" type="button">Elimina dalla biblioteca</button>
       <button id="cat-save" type="button">Salva scheda</button></div>
+
+    <div class="panel" id="analysis">
+      <h3>✨ Analisi con Gemini</h3>
+      <p class="hint">Gemini guarda le pagine che scegli e propone descrizione, tag, campi e collezioni di pagine.
+        Niente viene salvato finché non applichi la proposta; ogni analisi resta archiviata.</p>
+      <label for="a-pages">Pagine da inviare</label>
+      <div class="row">
+        <input type="text" id="a-pages" placeholder="es. 1-6, 20, 45-46" style="flex:1;min-width:10rem">
+        <button class="secondary small" id="a-add-sel" type="button" title="Aggiunge le pagine selezionate nel visualizzatore qui sotto">+ Selezione del visualizzatore</button>
+        <button class="secondary small" id="a-quick" type="button">Selezione rapida (prime 6 + 8)</button>
+        <button class="secondary small" id="a-clear" type="button">Svuota</button>
+      </div>
+      <label class="row" style="font-weight:normal"><input type="checkbox" id="a-whole"> Invia tutto il PDF
+        (${total} pagine, ${sizeText(c.size_mb)})</label>
+      <p class="hint" id="a-info"></p>
+      <label for="a-instr">Istruzioni per Gemini <span class="muted small">(modificabili; il programma aggiunge
+        da sé pagine inviate, tag disponibili e formato della risposta)</span></label>
+      <textarea id="a-instr" rows="10"></textarea>
+      <div class="row">
+        <button class="secondary small" id="a-save-default" type="button">Salva come mio predefinito</button>
+        <button class="secondary small" id="a-reset" type="button">Ripristina quello di fabbrica</button>
+        <span class="hint" id="a-prompt-state"></span>
+      </div>
+      <label class="row" style="font-weight:normal"><input type="checkbox" id="a-card" checked> Tieni conto della
+        scheda attuale (Gemini la completa e la corregge invece di ripartire da zero)</label>
+      <div class="row"><div id="a-history" style="flex:1"></div>
+        <button class="secondary" id="a-preview" type="button">Vedi il prompt</button>
+        <button class="gemini" id="a-send" type="button">Analizza con Gemini</button></div>
+    </div>
 
     <div class="panel">
       <h3>Pagine e collezioni</h3>
@@ -489,7 +522,8 @@ async function renderCatalog(id) {
       <thead><tr><th>Pagine</th><th>Tag</th><th>Commento</th><th></th></tr></thead>
       <tbody>${collections.map(x => `<tr>
         <td>${x.start === x.end ? x.start : `${x.start}–${x.end}`} <span class="muted small">(${x.end - x.start + 1})</span></td>
-        <td>${pageTagChip(x.tag, tags[x.tag].label)}</td><td>${esc(x.comment)}</td>
+        <td>${pageTagChip(x.tag, tags[x.tag].label)}</td><td>${esc(x.comment)}
+          ${x.origin ? `<span class="badge" title="${x.origin === "dedotta" ? "Gemini l'ha dedotta dall'indice, senza vedere le pagine" : "Proposta da Gemini"}">${x.origin === "dedotta" ? "dedotta" : "Gemini"}</span>` : ""}</td>
         <td style="white-space:nowrap"><button class="secondary small" data-cgo="${esc(x.id)}" type="button">Mostra</button>
           <button class="secondary small" data-cedit="${esc(x.id)}" type="button">Modifica</button>
           <button class="secondary small" data-cdel="${esc(x.id)}" type="button">Elimina</button></td></tr>`).join("")}
@@ -548,9 +582,183 @@ async function renderCatalog(id) {
   };
   window.addEventListener("keydown", onKey);
 
+  // --- analisi con Gemini
+  const pagesInput = $("#a-pages"), whole = $("#a-whole"), instr = $("#a-instr");
+  const pagesKey = `analysis-pages:${c.id}`, instrKey = "analysis-instructions";
+  const promptInfo = await api("GET", "/api/library/analysis-prompt");
+  pagesInput.value = drafts.get(pagesKey);
+  instr.value = drafts.get(instrKey) || promptInfo.effective;
+  const sendPages = () => { try { return parsePages(pagesInput.value, total); } catch { return []; } };
+  const refreshSend = () => {
+    drafts.set(pagesKey, pagesInput.value);
+    const pages = new Set(whole.checked ? [] : sendPages());
+    $$(".thumb", thumbs).forEach(t => t.classList.toggle("tosend", pages.has(+t.dataset.p)));
+    pagesInput.disabled = whole.checked;
+    let info = "";
+    if (whole.checked) info = `Verrà inviato il PDF intero: ${total} pagine, ${sizeText(c.size_mb)}.`;
+    else if (pagesInput.value.trim()) {
+      try { info = `${parsePages(pagesInput.value, total).length} pagine da inviare (segnate con ✉ nelle miniature).`; }
+      catch (e) { info = `⚠ ${e.message}`; }
+    } else info = "Scegli le pagine: scrivile, oppure seleziona nel visualizzatore e premi + Selezione del visualizzatore.";
+    $("#a-info").textContent = info;
+  };
+  const promptState = () => {
+    const custom = promptInfo.custom;
+    $("#a-prompt-state").textContent = instr.value.trim() === (custom || promptInfo.factory).trim()
+      ? (custom ? "Istruzioni: il tuo predefinito." : "Istruzioni: quelle di fabbrica.")
+      : "Istruzioni modificate (valgono per questo invio).";
+  };
+  pagesInput.addEventListener("input", refreshSend);
+  whole.addEventListener("change", refreshSend);
+  instr.addEventListener("input", () => { drafts.set(instrKey, instr.value); promptState(); });
+  $("#a-add-sel").addEventListener("click", () => {
+    const pages = new Set([...sendPages(), ...Array.from({ length: selEnd - selStart + 1 }, (_, i) => selStart + i)]);
+    pagesInput.value = formatPages([...pages]); whole.checked = false; refreshSend();
+  });
+  $("#a-quick").addEventListener("click", e => busy(e.target, async () => {
+    const r = await api("GET", `/api/library/catalogs/${enc(c.id)}/quick-pages`);
+    pagesInput.value = r.pages; whole.checked = false; refreshSend();
+  }));
+  $("#a-clear").addEventListener("click", () => { pagesInput.value = ""; whole.checked = false; refreshSend(); });
+  $("#a-save-default").addEventListener("click", e => busy(e.target, async () => {
+    Object.assign(promptInfo, await api("PUT", "/api/library/analysis-prompt", { text: instr.value }));
+    toast("Istruzioni salvate come tuo predefinito."); promptState();
+  }));
+  $("#a-reset").addEventListener("click", async e => {
+    const ok = await confirmDialog({ title: "Ripristinare le istruzioni di fabbrica?", ok: "Ripristina",
+      html: "<p>Il tuo predefinito personale (se c'è) viene cancellato e la casella torna al testo originale.</p>" });
+    if (!ok) return;
+    await busy(e.target, async () => {
+      Object.assign(promptInfo, await api("PUT", "/api/library/analysis-prompt", { text: "" }));
+      instr.value = promptInfo.factory; drafts.clear(instrKey); promptState();
+    });
+  });
+  const requestBody = () => ({ pages: pagesInput.value, whole: whole.checked, instructions: instr.value,
+                               include_card: $("#a-card").checked });
+  $("#a-preview").addEventListener("click", e => busy(e.target, async () => {
+    const p = await api("POST", `/api/library/catalogs/${enc(c.id)}/analysis/preview`, requestBody());
+    showText("Prompt per Gemini", p.prompt, `Allegato: ${p.pages_text} (${p.pages} pagine, ${sizeText(p.size_mb)}).`);
+  }));
+  $("#a-send").addEventListener("click", async e => {
+    if (hasUnsavedEdits()) { toast("Salva prima la scheda: Gemini deve vedere la versione aggiornata.", 6000); return; }
+    const p = await busy(e.target, () => api("POST", `/api/library/catalogs/${enc(c.id)}/analysis/preview`, requestBody()));
+    if (!p) return;
+    const ok = await confirmDialog({ title: "Analizzare con Gemini?", ok: "Analizza", html: `
+      <p><strong>1 richiesta</strong> a Gemini con ${p.pages_text === "PDF intero" ? "il <strong>PDF intero</strong>" : `le pagine <strong>${esc(p.pages_text)}</strong>`}
+        (${p.pages} pagine, ${sizeText(p.size_mb)}).</p>
+      ${p.heavy ? `<p class="note warn">È un allegato pesante: l'invio richiede più tempo e più token. Se Gemini lo rifiuta,
+        scegli meno pagine.</p>` : ""}
+      <p class="hint">La risposta diventa una proposta da rivedere: niente cambia nella scheda finché non la applichi.</p>` });
+    if (!ok) return;
+    await busy(e.target, async () => {
+      const job = await api("POST", `/api/library/catalogs/${enc(c.id)}/analysis`, requestBody());
+      watchJob($("#job"), job, j => { if (jobSucceeded(j)) { renderCatalog(c.id); } });
+      $("#job").scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  });
+
+  // --- proposte (analisi salvate)
+  const analyses = await api("GET", `/api/library/catalogs/${enc(c.id)}/analyses`);
+  const STATUS = { nuova: "da rivedere", applicata: "applicata", scartata: "scartata" };
+  $("#a-history").innerHTML = analyses.length ? `<details><summary class="small">Analisi archiviate (${analyses.length})</summary>
+    <ul class="small" style="margin:.25rem 0">${analyses.map(a => `<li>${esc(a.created_at.replace("T", " ").slice(0, 16))} ·
+      ${esc(a.pages_text)} · ${STATUS[a.status] || esc(a.status)}
+      <a href="#" data-review="${esc(a.id)}">rivedi</a></li>`).join("")}</ul></details>` : "";
+  const showProposal = a => {
+    const r = a.result;
+    const has = { tags: new Set(c.tags.map(t => t.toLowerCase())), fields: Object.fromEntries(c.fields.map(f => [f.name.toLowerCase(), f])) };
+    const exists = x => collections.some(y => y.start === x.start && y.end === x.end && y.tag === x.tag);
+    const box = $("#proposal");
+    box.innerHTML = `
+      <div class="panel proposal">
+        <div class="row"><h3 style="margin:0">✨ Proposta di Gemini</h3>
+          <span class="muted small">${esc(a.created_at.replace("T", " ").slice(0, 16))} · ${esc(a.pages_text)} · ${STATUS[a.status] || ""}</span>
+          <span class="spacer"></span><button class="secondary small" id="p-close" type="button">Chiudi</button></div>
+        ${a.problems.length ? `<details class="note warn small"><summary>${a.problems.length === 1 ? "1 voce della risposta scartata perché non valida" : `${a.problems.length} voci della risposta scartate perché non valide`}</summary>
+          <ul>${a.problems.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>` : ""}
+        <p class="hint">Scegli cosa applicare alla scheda. Le voci già presenti non vengono duplicate.</p>
+
+        <h4>Descrizione</h4>
+        <blockquote>${esc(r.description) || "<em>vuota</em>"}</blockquote>
+        <div class="row small">
+          <label class="row" style="font-weight:normal;margin:0"><input type="radio" name="p-desc" value="none"> non usare</label>
+          <label class="row" style="font-weight:normal;margin:0"><input type="radio" name="p-desc" value="replace"> sostituisci la descrizione</label>
+          <label class="row" style="font-weight:normal;margin:0"><input type="radio" name="p-desc" value="append"> aggiungi in fondo</label>
+        </div>
+        ${r.notes ? `<h4>Osservazioni</h4><blockquote>${esc(r.notes)}</blockquote>
+          <label class="row small" style="font-weight:normal;margin:0"><input type="checkbox" id="p-notes"> aggiungi le osservazioni alla descrizione</label>` : ""}
+
+        <h4>Tag</h4>
+        <div class="chips">${r.tags.map(t => has.tags.has(t.toLowerCase())
+          ? `<span class="chip" title="già presente">✓ ${esc(t)}</span>`
+          : `<label class="chip"><input type="checkbox" data-ptag="${esc(t)}" checked> ${esc(t)}</label>`).join("") || `<span class="muted small">nessuno</span>`}</div>
+
+        <h4>Campi</h4>
+        ${r.fields.length ? r.fields.map((f, i) => {
+          const old = has.fields[f.name.toLowerCase()];
+          return `<label class="row small" style="font-weight:normal;margin:.15rem 0">
+            <input type="checkbox" data-pfield="${i}" ${old ? "" : "checked"}>
+            <span><strong>${esc(f.name)}</strong> — ${esc(f.description)}
+            ${old ? `<span class="badge">${old.description ? "già presente" : "già presente: ne completa la descrizione"}</span>` : ""}</span></label>`;
+        }).join("") : `<span class="muted small">nessuno</span>`}
+
+        <h4>Collezioni di pagine</h4>
+        ${r.collections.length ? `<div class="table-wrap"><table><thead><tr><th></th><th>Pagine</th><th>Tag</th><th>Commento</th><th></th></tr></thead>
+          <tbody>${r.collections.map((x, i) => `<tr>
+            <td>${exists(x) ? "✓" : `<input type="checkbox" data-pcoll="${i}" checked>`}</td>
+            <td>${x.start === x.end ? x.start : `${x.start}–${x.end}`}</td>
+            <td>${pageTagChip(x.tag, tags[x.tag].label)}</td>
+            <td>${esc(x.comment)} ${x.deduced ? `<span class="badge warn" title="Gemini non ha visto queste pagine: l'ha dedotto dall'indice">dedotta</span>` : ""}
+              ${exists(x) ? `<span class="badge">già presente</span>` : ""}</td>
+            <td><button class="secondary small" data-pgo="${i}" type="button">Mostra</button></td></tr>`).join("")}</tbody></table></div>`
+          : `<span class="muted small">nessuna</span>`}
+
+        <div class="row" style="margin-top:1rem"><span class="spacer"></span>
+          ${a.status === "nuova" ? `<button class="secondary" id="p-dismiss" type="button">Scarta la proposta</button>` : ""}
+          <button id="p-apply" type="button">Applica i selezionati</button></div>
+      </div>`;
+    const defaultDesc = !r.description ? "none" : c.description.trim() ? "none" : "replace";
+    $(`input[name="p-desc"][value="${defaultDesc}"]`, box).checked = true;
+    $("#p-close").addEventListener("click", () => { box.innerHTML = ""; });
+    $$("[data-pgo]", box).forEach(b => b.addEventListener("click", () => {
+      const x = r.collections[+b.dataset.pgo]; select(x.start, x.end); show(x.start);
+      thumbs.scrollIntoView({ block: "center", behavior: "smooth" });
+    }));
+    if ($("#p-dismiss")) $("#p-dismiss").addEventListener("click", e => busy(e.target, async () => {
+      await api("POST", `/api/library/catalogs/${enc(c.id)}/analyses/${enc(a.id)}/dismiss`);
+      toast("Proposta scartata: resta nell'archivio delle analisi."); renderCatalog(c.id);
+    }));
+    $("#p-apply").addEventListener("click", e => {
+      if (hasUnsavedEdits()) { toast("Salva prima la scheda: le modifiche non salvate andrebbero perse.", 6000); return; }
+      return busy(e.target, async () => {
+        await api("POST", `/api/library/catalogs/${enc(c.id)}/analyses/${enc(a.id)}/apply`, {
+          description: $('input[name="p-desc"]:checked', box).value,
+          notes: !!($("#p-notes") && $("#p-notes").checked),
+          tags: $$("[data-ptag]:checked", box).map(i => i.dataset.ptag),
+          fields: $$("[data-pfield]:checked", box).map(i => +i.dataset.pfield),
+          collections: $$("[data-pcoll]:checked", box).map(i => +i.dataset.pcoll),
+        });
+        toast("Proposta applicata alla scheda."); renderCatalog(c.id);
+      });
+    });
+  };
+  $$("[data-review]").forEach(link => link.addEventListener("click", e => {
+    e.preventDefault();
+    showProposal(analyses.find(a => a.id === link.dataset.review));
+    $("#proposal").scrollIntoView({ block: "start", behavior: "smooth" });
+  }));
+  const pending = analyses.find(a => a.status === "nuova");
+  if (pending) showProposal(pending);
+
   drawMarks();
   select(1, 1);
   show(1, false);
+  refreshSend();
+  promptState();
+
+  // analisi in corso (pagina riaperta durante il lavoro)
+  const running = await api("GET", `/api/library/catalogs/${enc(c.id)}/job`);
+  if (running && running.status === "in_corso") watchJob($("#job"), running, j => { if (jobSucceeded(j)) renderCatalog(c.id); });
 }
 
 // ------------------------------------------------------------------ scelta dalla biblioteca (per i progetti)

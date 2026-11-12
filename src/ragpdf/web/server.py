@@ -40,6 +40,20 @@ from ragpdf.core.render import format_pages, parse_page_ranges, render_pages
 from ragpdf.core.workspace import slugify
 from ragpdf.indexing.extractor import Extractor, SpecChangedError, selected_pages
 from ragpdf.indexing.spec import SpecError, read_csv_rows
+from ragpdf.library_analysis import (
+    HEAVY_PDF_BYTES,
+    PromptStore,
+    Selection,
+    apply_analysis,
+    attachment_size,
+    build_prompt,
+    check_pages,
+    get_analysis,
+    list_analyses,
+    quick_pages,
+    run_analysis,
+    save_analysis,
+)
 from ragpdf.primer import MAX_SELECTED_PAGES
 from ragpdf.setup_session import (
     SetupError,
@@ -287,6 +301,7 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             "folder": card.folder, "tags": card.tags, "description": card.description,
             "fields": len(card.fields), "collections": len(card.collections),
             "to_index": len(card.pages_with_tag("da-indicizzare")),
+            "proposals": sum(1 for a in list_analyses(doc) if a.status == "nuova"),
             "projects": [{"id": p.id, "name": p.info.name} for p in projects if doc.id in p.info.documents],
         }
 
@@ -334,7 +349,7 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         doc = app.documents.get(doc_id)
         card = app.library.card(doc)
         return {**catalog_summary(doc, card, app.projects.list()), **card.model_dump(),
-                "scanned": not has_text_layer(doc.pdf_path)}
+                "scanned": not has_text_layer(doc.pdf_path), "size_mb": round(doc.pdf_path.stat().st_size / 2**20, 1)}
 
     @api.put("/api/library/catalogs/{doc_id}")
     def library_update(doc_id: str, body: dict = Body(...)):
@@ -361,6 +376,87 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             card.fields = fields
         app.library.save_card(doc, card)
         return library_catalog(doc_id)
+
+    # ------------------------------------------------------------------ analisi con Gemini
+    prompts = PromptStore(app.workspace)
+
+    def analysis_job_key(doc: Document) -> str:
+        return f"lib:{doc.id}"
+
+    def analysis_request(doc: Document, body: dict) -> tuple[list[int] | None, str, bool]:
+        if body.get("whole"):
+            pages = None
+        else:   # attenzione: per parse_page_ranges il testo vuoto vuol dire "tutte le pagine"
+            pages = parse_page_ranges(str(body.get("pages") or ""), doc.info.page_count) or []
+        return check_pages(doc, pages), str(body.get("instructions") or ""), bool(body.get("include_card", True))
+
+    def analysis_view(a) -> dict[str, Any]:
+        return {**a.model_dump(), "pages_text": a.pages_text}
+
+    @api.get("/api/library/analysis-prompt")
+    def analysis_prompt():
+        return {"factory": prompts.factory(), "custom": prompts.custom(), "effective": prompts.effective()}
+
+    @api.put("/api/library/analysis-prompt")
+    def analysis_prompt_save(body: dict = Body(...)):
+        prompts.save(str(body.get("text") or ""))
+        return analysis_prompt()
+
+    @api.get("/api/library/catalogs/{doc_id}/quick-pages")
+    def analysis_quick_pages(doc_id: str):
+        doc = app.documents.get(doc_id)
+        return {"pages": format_pages(quick_pages(doc.info.page_count))}
+
+    @api.post("/api/library/catalogs/{doc_id}/analysis/preview")
+    def analysis_preview(doc_id: str, body: dict = Body(...)):
+        """Prompt esatto e dimensione dell'allegato, senza chiamare Gemini."""
+        doc = app.documents.get(doc_id)
+        pages, instructions, include_card = analysis_request(doc, body)
+        size = attachment_size(doc, pages)
+        return {
+            "prompt": build_prompt(doc, app.library.card(doc), instructions, pages, include_card),
+            "pages": doc.info.page_count if pages is None else len(pages),
+            "pages_text": "PDF intero" if pages is None else format_pages(pages),
+            "size_mb": round(size / 2**20, 1), "heavy": size > HEAVY_PDF_BYTES,
+        }
+
+    @api.post("/api/library/catalogs/{doc_id}/analysis")
+    def analysis_start(doc_id: str, body: dict = Body(...)):
+        doc = app.documents.get(doc_id)
+        pages, instructions, include_card = analysis_request(doc, body)
+        client = app.client()   # errore subito se mancano le chiavi
+
+        def work(job):
+            def progress(message: str) -> None:
+                job.control.progress(0, 0, message)
+            analysis = run_analysis(doc, app.library, client, instructions, pages, include_card, progress)
+            return {"analysis_id": analysis.id, "problems": analysis.problems}
+
+        label = f"Gemini analizza '{doc.info.title}'"
+        return jobs.submit(analysis_job_key(doc), "analysis", label, work).to_dict()
+
+    @api.get("/api/library/catalogs/{doc_id}/job")
+    def analysis_job(doc_id: str):
+        job = jobs.active_for(analysis_job_key(app.documents.get(doc_id)))
+        return job.to_dict() if job else None
+
+    @api.get("/api/library/catalogs/{doc_id}/analyses")
+    def analyses(doc_id: str):
+        return [analysis_view(a) for a in list_analyses(app.documents.get(doc_id))]
+
+    @api.post("/api/library/catalogs/{doc_id}/analyses/{analysis_id}/apply")
+    def analysis_apply(doc_id: str, analysis_id: str, body: dict = Body(...)):
+        doc = app.documents.get(doc_id)
+        apply_analysis(doc, app.library, get_analysis(doc, analysis_id), Selection.model_validate(body))
+        return library_catalog(doc_id)
+
+    @api.post("/api/library/catalogs/{doc_id}/analyses/{analysis_id}/dismiss")
+    def analysis_dismiss(doc_id: str, analysis_id: str):
+        doc = app.documents.get(doc_id)
+        analysis = get_analysis(doc, analysis_id)
+        analysis.status = "scartata"
+        save_analysis(doc, analysis)
+        return analysis_view(analysis)
 
     @api.delete("/api/library/catalogs/{doc_id}")
     def library_delete(doc_id: str):

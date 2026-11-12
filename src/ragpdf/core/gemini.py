@@ -72,6 +72,18 @@ class OperationCancelledError(GeminiError):
     """L'utente ha chiesto di fermare l'operazione."""
 
 
+class RequestTooLargeError(GeminiError):
+    """La richiesta supera i limiti di Gemini (file o token): riprovare identica è inutile."""
+
+
+# Messaggi con cui Google rifiuta una richiesta troppo pesante (400/413).
+_TOO_LARGE = re.compile(
+    r"exceed|too large|too long|payload size|request size|token count|maximum number of tokens|"
+    r"input token|page limit|too many pages",
+    re.IGNORECASE,
+)
+
+
 # --- annullamento ------------------------------------------------------------------------
 # Ogni operazione in background registra, nel proprio thread, l'evento che l'interfaccia
 # imposta quando l'utente preme "Ferma". Il client lo controlla prima di ogni tentativo e
@@ -509,6 +521,11 @@ class GeminiClient:
                     self._wait(delay)
                     continue
 
+                if failure.status == 413 or (failure.status == 400 and _TOO_LARGE.search(failure.message)):
+                    raise RequestTooLargeError(
+                        "La richiesta è troppo pesante per Gemini (troppe pagine o file troppo grande): "
+                        f"scegli meno pagine. Dettaglio: {failure.message}"
+                    ) from exc
                 raise GeminiError(f"Gemini ha rifiutato la richiesta ({failure}).") from exc
             else:
                 with self._lock:

@@ -35,6 +35,7 @@ src/ragpdf/
 ├── app.py              strato applicativo: collega i pezzi, usato dalla CLI
 ├── setup_session.py    logica della configurazione guidata (giri, anteprima, salvataggio)
 ├── primer.py           bozza del primer da PDF intero o da un estratto
+├── library_analysis.py analisi di un catalogo della biblioteca con Gemini (proposte)
 │
 ├── core/               infrastruttura comune alle due modalità
 │   ├── paths.py        percorsi dell'applicazione
@@ -158,6 +159,16 @@ data/library/folders.yaml           cartelle (anche vuote)
   progetto dalla biblioteca le pagine `da-indicizzare` diventano le pagine del PDF nel
   progetto, le pagine `esempio` quelle proposte nella configurazione guidata, campi e
   descrizioni l'obiettivo proposto. Una pagina può stare in più collezioni.
+- **Analisi con Gemini** (`library_analysis.py`): estratto PDF delle pagine scelte (o PDF
+  intero) e prompt in due parti, le **istruzioni** modificabili dall'utente
+  (`configs/prompts/library_analyze.md`, personali in `data/library/analysis_prompt.md`) e la
+  **cornice** fissa (`library_analyze_frame.md`: corrispondenza delle pagine, tag disponibili,
+  scheda attuale, regole sui numeri di pagina), così modificare le istruzioni non rompe il
+  formato. Risposta a schema rigido (tag delle collezioni come `enum`), poi ricontrollata:
+  intervalli fuori dal documento o tag sconosciuti vengono scartati e segnalati. Il risultato
+  è una proposta salvata in `documents/<id>/analyses/`, applicata solo per le voci scelte e
+  senza doppioni. Le richieste troppo pesanti (400/413 con messaggi sui limiti) diventano
+  `RequestTooLargeError`, senza nuovi tentativi.
 - **Scala**: l'interfaccia riceve l'elenco completo in una risposta (centinaia di schede sono
   pochi KB) e filtra nel browser; le miniature vengono create solo quando servono e restano
   in cache (`documents/<id>/thumbs/`).

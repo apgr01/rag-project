@@ -72,9 +72,11 @@ Decisi insieme e da rispettare in tutti gli step:
 
 - [x] **A · Biblioteca**: cartelle, tag, ricerca, scheda (descrizione, campi), collezioni di
   pagine con tag fissi, progetto dalla selezione con pagine e obiettivo precompilati.
-- [ ] **B · Analisi con Gemini** di un catalogo: prompt predefinito modificabile, pagine scelte
+- [x] **B · Analisi con Gemini** di un catalogo: prompt predefinito modificabile, pagine scelte
   dall'utente (estratto PDF) o PDF intero, gestione dei rifiuti per richieste troppo pesanti;
   proposta di descrizione, tag, campi e collezioni da accettare o correggere.
+- [ ] **B2 · Analisi in blocco** dei cataloghi selezionati (selezione rapida o PDF intero,
+  stesse istruzioni), con proposte da rivedere una per una.
 - [ ] **C · Raggruppamento**: azione sui cataloghi selezionati; Gemini riceve descrizioni e
   campi e risponde con uno schema rigido (gruppi con commento, non accorpabili); report con
   azioni per gruppo (crea progetto, tag comuni) e per i non accorpabili.

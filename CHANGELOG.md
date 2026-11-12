@@ -11,6 +11,10 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   visualizzatore delle pagine con **collezioni di pagine** (intervalli con tag fissi:
   da indicizzare, pagina d'esempio, copertina, indice, legenda, ...). Azioni su più cataloghi:
   sposta, tag, crea progetto, elimina.
+- **Analisi di un catalogo con Gemini**: pagine scelte dall'utente (estratto PDF), selezione
+  rapida o PDF intero; istruzioni modificabili con predefinito personale; proposta di
+  descrizione, tag, campi e collezioni (anche dedotte dall'indice) da rivedere e applicare in
+  parte; archivio delle analisi; richieste troppo pesanti riconosciute e spiegate.
 - Progetto dalla biblioteca: pagine da indicizzare, pagine d'esempio, campi e descrizioni
   precompilano progetto e configurazione guidata. Nei progetti, *Scegli dalla biblioteca…*.
 

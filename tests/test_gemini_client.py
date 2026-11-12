@@ -6,7 +6,13 @@ import pytest
 from google.genai import errors
 
 from ragpdf.core.config import GeminiSettings
-from ragpdf.core.gemini import GeminiClient, GeminiError, QuotaExhaustedError, load_api_keys
+from ragpdf.core.gemini import (
+    GeminiClient,
+    GeminiError,
+    QuotaExhaustedError,
+    RequestTooLargeError,
+    load_api_keys,
+)
 
 
 class FakeClock:
@@ -148,6 +154,24 @@ def test_bad_request_fails_immediately():
         raise errors.ClientError(400, {"error": {"code": 400, "message": "modello inesistente"}})
 
     with pytest.raises(GeminiError, match="modello inesistente"):
+        client._call(action)
+    assert calls == ["k1"]
+
+
+@pytest.mark.parametrize("status, message", [
+    (400, "The input token count (1250000) exceeds the maximum number of tokens allowed (1048576)."),
+    (400, "Request payload size exceeds the limit: 20971520 bytes."),
+    (413, "Request Entity Too Large"),
+])
+def test_too_large_request_is_explained_without_retries(status, message):
+    client, _ = make_client(["k1", "k2"])
+    calls = []
+
+    def action(key):
+        calls.append(key)
+        raise errors.ClientError(status, {"error": {"code": status, "message": message}})
+
+    with pytest.raises(RequestTooLargeError, match="scegli meno pagine"):
         client._call(action)
     assert calls == ["k1"]
 

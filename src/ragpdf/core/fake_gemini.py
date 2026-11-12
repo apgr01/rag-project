@@ -50,6 +50,8 @@ def _placeholder_from_schema(schema: dict[str, Any], label: str = "valore") -> A
     validi, così anche la sessione guidata funziona in modalità simulata.
     """
     t = schema.get("type")
+    if schema.get("enum"):
+        return schema["enum"][0]
     if t == "string" and label.endswith("_yaml"):
         return _SIMULATED_SPEC
     if t == "string" and label.endswith("_markdown"):
