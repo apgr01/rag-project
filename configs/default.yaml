@@ -1,18 +1,35 @@
-app:
-  name: "Industrial Catalog RAG"
-  environment: "development"
+# Configurazione di ragpdf.
+# Ogni valore ha un default: qui basta indicare quelli che si vogliono cambiare.
+# Una chiave scritta male viene segnalata all'avvio.
 
-ingestion:
-  mode: "standard"                           # Opzioni: "standard" | "catalog"
-  chunk_size: 500                            # Caratteri per chunk (modalità standard)
-  chunk_overlap: 50                          # Overlap tra chunk consecutivi
-  primer_path: "configs/primers/Catalogo 5 KUBOTA rel 1010.md"  # Usato in modalità "catalog"
-  render_dpi: 150                            # Risoluzione conversione PDF -> Immagini
+# Cartella con i dati dell'utente (documenti, primer, specifiche, CSV prodotti).
+# Relativa alla cartella del progetto, oppure un percorso assoluto.
+workspace_dir: data
+
+gemini:
+  model: gemini-3.6-flash          # lettura delle pagine ed estrazione strutturata
+  text_model: gemini-3.6-flash     # risposte testuali e generazione del primer
+  temperature: 0.1                 # bassa = risposte più fedeli e ripetibili
+  media_resolution:                # low | medium | high (vuoto = default del modello)
+  thinking_level:                  # minimal | low | medium | high: meno = più veloce ed economico
+                                   # (vuoto = default del modello; se il modello non lo supporta, lascialo vuoto)
+  requests_per_minute_per_key: 10  # ritmo massimo per ciascuna chiave API
+  max_requests_per_minute_total:   # ritmo massimo complessivo; vuoto = si adatta da solo alle quote
+                                   # (le quote valgono per PROGETTO Google: chiavi dello stesso
+                                   #  progetto le condividono)
+  max_retries: 6                   # tentativi per errori di rete/server (non per sovraccarico o quote)
+  retry_delay_seconds: 5           # attesa fissa prima di riprovare (es. 503 "high demand")
+  max_wait_minutes: 10             # oltre questa attesa continua il lavoro si ferma (si riprende rilanciando)
+  quota_cooldown_seconds: 60       # attesa dopo una quota superata, se Google non la indica
+
+render:
+  dpi: 200                         # più alto = testo piccolo più leggibile, file più grandi
+
+indexing:
+  input: image+text                # image+text | image | pdf (cosa riceve Gemini per ogni pagina)
+  max_workers:                     # vuoto = una richiesta parallela per chiave API
+  max_page_attempts: 3             # una pagina fallita viene ritentata fino a N volte
 
 rag:
-  mode: "standard"                           # Opzioni: "standard" | "hybrid"
-  llm_model: "gemini-3.6-flash"                # Modello per la generazione della risposta
-  flash_model: "gemini-3.6-flash"            # Modello rapido per routing/parsing
-  vector_db_path: "rag/store"
-  collection_name: "catalog_documents"
-  similarity_top_k: 4                        # Numero di chunk da recuperare
+  collection_name: documents
+  top_k: 4                         # pagine recuperate per rispondere a una domanda

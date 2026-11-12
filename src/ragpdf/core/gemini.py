@@ -1,0 +1,675 @@
+"""Client Gemini: un punto unico per tutte le chiamate al modello.
+
+Cosa aggiunge rispetto a usare direttamente l'SDK ``google-genai``:
+
+**Più chiavi API, usate in parallelo.** Le chiavi (``GEMINI_API_KEY_01``,
+``_02``, ... nel file ``.env``) formano un *pool*. Ogni richiesta prende la
+chiave libera prima delle altre.
+
+**Ritmo controllato per chiave.** Ogni chiave non riceve più di
+``requests_per_minute_per_key`` richieste al minuto, anche con molti thread:
+il limite è condiviso, non per thread.
+
+**Errori gestiti per tipo** (dal codice HTTP, non cercando parole nel testo):
+
+- ``429`` quota al minuto → la chiave va in pausa per ``quota_cooldown_seconds``
+  e si riprova con un'altra;
+- ``429`` quota giornaliera → la chiave viene esclusa fino alla fine dell'esecuzione;
+- ``503`` sovraccarico ("high demand") → si riprova a intervallo fisso
+  (``retry_delay_seconds``) senza consumare tentativi; se dura oltre ``max_wait_minutes``
+  il lavoro si ferma in modo ordinato (:class:`ServiceUnavailableError`);
+- ``500/502/504`` e problemi di rete → si riprova a intervallo fisso, fino a ``max_retries``;
+- altri errori (es. ``400`` richiesta non valida) → errore immediato.
+
+Se tutte le chiavi hanno esaurito la quota giornaliera viene sollevata
+:class:`QuotaExhaustedError`: chi elabora le pagine si ferma in modo ordinato e
+il lavoro riprende al rilancio successivo.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import random
+import re
+import threading
+import time
+from collections.abc import Callable, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Protocol
+
+from dotenv import dotenv_values
+
+from ragpdf.core.config import GeminiSettings
+from ragpdf.core.paths import ENV_FILE
+
+RETRYABLE_STATUS = {500, 502, 503, 504}
+# Sotto questa dimensione un PDF viene inviato direttamente nella richiesta (limite
+# complessivo di una richiesta: 20 MB); sopra, tramite la Files API.
+INLINE_PDF_MAX_BYTES = 15 * 1024 * 1024
+
+
+class GeminiError(Exception):
+    """Errore non recuperabile in una chiamata a Gemini."""
+
+
+class QuotaExhaustedError(GeminiError):
+    """Tutte le chiavi API hanno esaurito la quota: riprovare più tardi."""
+
+
+class GeminiNotConfiguredError(GeminiError):
+    """Nessuna chiave API disponibile."""
+
+
+class ServiceUnavailableError(GeminiError):
+    """Gemini è sovraccarico da troppo tempo: riprovare più tardi (non è colpa delle pagine)."""
+
+
+class OperationCancelledError(GeminiError):
+    """L'utente ha chiesto di fermare l'operazione."""
+
+
+# --- annullamento ------------------------------------------------------------------------
+# Ogni operazione in background registra, nel proprio thread, l'evento che l'interfaccia
+# imposta quando l'utente preme "Ferma". Il client lo controlla prima di ogni tentativo e
+# durante le attese (sovraccarico, quote, ritmo): l'interruzione è immediata.
+_cancel_state = threading.local()
+
+
+@contextmanager
+def cancellation(event: threading.Event | None):
+    """Associa ``event`` alle chiamate a Gemini fatte da questo thread."""
+    previous = getattr(_cancel_state, "event", None)
+    _cancel_state.event = event
+    try:
+        yield
+    finally:
+        _cancel_state.event = previous
+
+
+def _current_cancel() -> threading.Event | None:
+    return getattr(_cancel_state, "event", None)
+
+
+class IncompleteResponseError(GeminiError):
+    """Il modello ha interrotto la risposta (troppo lunga, bloccata, ...): ritentare è inutile."""
+
+
+_FINISH_EXPLANATIONS = {
+    "MAX_TOKENS": (
+        "la risposta ha superato la lunghezza massima (pagina con moltissime righe). "
+        "Riduci le colonne o dividi il lavoro, ad es. con istruzioni più selettive"
+    ),
+    "SAFETY": "risposta bloccata dai filtri di sicurezza di Gemini",
+    "PROHIBITED_CONTENT": "risposta bloccata dai filtri di sicurezza di Gemini",
+    "BLOCKLIST": "risposta bloccata dai filtri di Gemini",
+    "SPII": "risposta bloccata: possibili dati personali sensibili",
+    "RECITATION": "risposta bloccata perché riproduce testo protetto (recitation)",
+}
+
+
+def check_finish(response: Any) -> None:
+    """Solleva :class:`IncompleteResponseError` se la risposta è stata interrotta o bloccata."""
+    feedback = getattr(response, "prompt_feedback", None)
+    block = getattr(feedback, "block_reason", None) if feedback is not None else None
+    if block:
+        name = str(getattr(block, "name", block))
+        raise IncompleteResponseError(f"richiesta bloccata da Gemini ({name})")
+    candidates = getattr(response, "candidates", None) or []
+    if not candidates:
+        return
+    reason = getattr(candidates[0], "finish_reason", None)
+    name = str(getattr(reason, "name", reason or "")).upper()
+    for key, explanation in _FINISH_EXPLANATIONS.items():
+        if key in name:
+            raise IncompleteResponseError(explanation)
+
+
+class LLMClient(Protocol):
+    """Interfaccia usata dal resto del programma.
+
+    Il client vero (:class:`GeminiClient`) e quello simulato per i test
+    (:class:`ragpdf.core.fake_gemini.FakeGeminiClient`) la rispettano entrambi.
+    Ogni richiesta può allegare immagini e/o un PDF.
+    """
+
+    @property
+    def parallelism(self) -> int: ...
+
+    usage: Usage
+
+    def generate_text(
+        self, prompt: str, images: Sequence[Path] = (), pdf: Path | None = None, model: str | None = None
+    ) -> str: ...
+
+    def generate_json(
+        self, prompt: str, json_schema: dict[str, Any], images: Sequence[Path] = (),
+        pdf: Path | None = None, model: str | None = None,
+    ) -> Any: ...
+
+
+# --------------------------------------------------------------------------------------
+# Chiavi API
+# --------------------------------------------------------------------------------------
+def load_api_keys(env_file: Path = ENV_FILE) -> list[str]:
+    """Legge le chiavi da ``.env`` e dalle variabili d'ambiente.
+
+    Formati accettati: ``GEMINI_API_KEY``, ``GEMINI_API_KEY_01``, ``_02``, ...
+    oppure ``GEMINI_API_KEYS=chiave1,chiave2``. Le chiavi vengono ordinate per
+    nome e i duplicati eliminati.
+    """
+    values: dict[str, str] = {}
+    if env_file.exists():
+        values.update({k: v for k, v in dotenv_values(env_file).items() if v})
+    values.update({k: v for k, v in os.environ.items() if k.startswith("GEMINI_API_KEY") and v})
+
+    # Prima le chiavi singole in ordine di nome (_01, _02, ...), poi l'elenco GEMINI_API_KEYS.
+    keys: list[str] = [
+        values[name].strip()
+        for name in sorted(values)
+        if name.startswith("GEMINI_API_KEY") and name != "GEMINI_API_KEYS"
+    ]
+    if "GEMINI_API_KEYS" in values:
+        keys.extend(k.strip() for k in values["GEMINI_API_KEYS"].split(","))
+
+    unique: list[str] = []
+    for k in keys:
+        if k and k not in unique:
+            unique.append(k)
+    return unique
+
+
+@dataclass
+class Usage:
+    """Consumo cumulativo: richieste andate a buon fine e token (da ``usage_metadata``)."""
+
+    requests: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0       # risposta + eventuale "ragionamento" del modello
+
+    def add(self, response: Any) -> None:
+        meta = getattr(response, "usage_metadata", None)
+        self.requests += 1
+        if meta is None:
+            return
+        self.input_tokens += getattr(meta, "prompt_token_count", 0) or 0
+        self.output_tokens += (getattr(meta, "candidates_token_count", 0) or 0) + (
+            getattr(meta, "thoughts_token_count", 0) or 0
+        )
+
+    def describe(self) -> str:
+        if not self.requests:
+            return "nessuna richiesta a Gemini"
+        if not (self.input_tokens or self.output_tokens):
+            return f"{self.requests} richieste a Gemini"
+        per = (self.input_tokens + self.output_tokens) // self.requests
+        return (
+            f"{self.requests} richieste a Gemini, token: {self.input_tokens:,} in ingresso + "
+            f"{self.output_tokens:,} in uscita (circa {per:,} per richiesta)"
+        ).replace(",", ".")
+
+
+@dataclass
+class _KeySlot:
+    index: int
+    key: str
+    client: Any = None
+    next_free_at: float = 0.0       # prima di questo istante la chiave non va usata
+    paused_until: float = 0.0       # pausa per quota (inf = esclusa)
+
+
+class _APIFailure(Exception):
+    """Errore normalizzato: codice HTTP (o None), messaggio e, per i 429, dettagli della quota."""
+
+    def __init__(self, status: int | None, message: str, details: Any = None):
+        self.status = status
+        self.message = message
+        self.details = details
+        super().__init__(f"{status}: {message}" if status else message)
+
+    @property
+    def quota_ids(self) -> list[str]:
+        """Identificativi delle quote superate, es. 'GenerateRequestsPerDayPerProjectPerModel-FreeTier'."""
+        ids = []
+        for item in _detail_items(self.details):
+            for violation in item.get("violations", []) or []:
+                if isinstance(violation, dict) and violation.get("quotaId"):
+                    ids.append(str(violation["quotaId"]))
+        return ids
+
+    @property
+    def is_daily_quota(self) -> bool:
+        text = " ".join(self.quota_ids) or self.message
+        text = text.lower()
+        return "perday" in text or "per day" in text or "daily" in text
+
+    @property
+    def retry_delay(self) -> float | None:
+        """Attesa suggerita da Google (RetryInfo.retryDelay, oppure 'retry in 37.5s' nel messaggio)."""
+        for item in _detail_items(self.details):
+            delay = item.get("retryDelay")
+            if delay:
+                match = re.match(r"([\d.]+)s", str(delay))
+                if match:
+                    return float(match.group(1))
+        match = re.search(r"retry in ([\d.]+)\s*s", self.message, flags=re.IGNORECASE)
+        return float(match.group(1)) if match else None
+
+
+def _detail_items(details: Any) -> list[dict[str, Any]]:
+    """Gli elementi 'details' della risposta d'errore di Google, comunque sia annidata."""
+    if isinstance(details, dict):
+        error = details.get("error", details)
+        items = error.get("details", []) if isinstance(error, dict) else []
+        return [i for i in items if isinstance(i, dict)]
+    if isinstance(details, list):
+        return [i for i in details if isinstance(i, dict)]
+    return []
+
+
+def _classify(exc: Exception) -> _APIFailure | None:
+    """Converte le eccezioni dell'SDK in un ``_APIFailure``; ``None`` se sconosciuta."""
+    try:
+        from google.genai import errors as genai_errors
+    except ImportError:  # pragma: no cover
+        genai_errors = None
+
+    if genai_errors is not None and isinstance(exc, genai_errors.APIError):
+        return _APIFailure(
+            getattr(exc, "code", None),
+            str(getattr(exc, "message", "") or exc),
+            getattr(exc, "details", None),
+        )
+
+    try:
+        import httpx
+
+        if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError)):
+            return _APIFailure(None, f"errore di rete: {exc}")
+    except ImportError:  # pragma: no cover
+        pass
+
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return _APIFailure(None, f"errore di rete: {exc}")
+    return None
+
+
+class _AdaptiveLimit:
+    """Ritmo massimo complessivo (tutte le chiavi insieme), adattato alle quote reali.
+
+    Le quote di Gemini valgono per *progetto*: più chiavi dello stesso progetto la
+    condividono. Non potendolo sapere in anticipo, si procede così (come il controllo di
+    congestione di TCP): a ogni episodio di "quota al minuto superata" il ritmo scende al 90%
+    delle richieste effettivamente riuscite nell'ultimo minuto; dopo ogni serie di richieste
+    riuscite risale del 10%, senza superare il massimo teorico (chiavi x ritmo per chiave).
+    """
+
+    INCREASE_EVERY = 20
+
+    def __init__(self, ceiling_rpm: float, start_rpm: float | None):
+        self.ceiling = ceiling_rpm
+        self.rpm = min(start_rpm, ceiling_rpm) if start_rpm else ceiling_rpm
+        self.next_slot_at = 0.0
+        self.paused_until = 0.0
+        self._successes = 0
+        self._recent: list[float] = []
+        self._episode_until = 0.0
+
+    @property
+    def interval(self) -> float:
+        return 60.0 / self.rpm
+
+    def reserve(self, now: float) -> float:
+        """Prenota un posto; restituisce l'istante in cui la richiesta può partire."""
+        start = max(now, self.next_slot_at, self.paused_until)
+        self.next_slot_at = start + self.interval
+        return start
+
+    def on_success(self, now: float) -> bool:
+        """Registra un successo; True se il ritmo è stato aumentato."""
+        self._recent = [t for t in self._recent if now - t < 60] + [now]
+        self._successes += 1
+        if self._successes >= self.INCREASE_EVERY and self.rpm < self.ceiling:
+            self._successes = 0
+            self.rpm = min(self.ceiling, self.rpm * 1.1)
+            return True
+        return False
+
+    def on_quota(self, now: float, pause: float) -> float:
+        """Registra un 429 al minuto; restituisce il nuovo ritmo.
+
+        Un solo taglio per episodio: i 429 che arrivano mentre si sta già aspettando (richieste
+        partite insieme) non abbassano ulteriormente il ritmo. Il nuovo ritmo è il 90% delle
+        richieste riuscite nell'ultimo minuto, cioè una stima diretta del limite reale.
+        """
+        if now >= self._episode_until:
+            observed = len([t for t in self._recent if now - t < 60])
+            target = 0.9 * observed if observed >= 2 else 0.7 * self.rpm
+            self.rpm = max(1.0, min(self.rpm, target))
+            self._successes = 0
+            self._episode_until = now + pause
+        self.paused_until = max(self.paused_until, now + pause)
+        self.next_slot_at = max(self.next_slot_at, self.paused_until)
+        return self.rpm
+
+
+# --------------------------------------------------------------------------------------
+# Client
+# --------------------------------------------------------------------------------------
+OVERLOAD_STATUS = {503}
+_OVERLOAD_WORDS = ("high demand", "overloaded", "unavailable")
+
+
+def _default_log(message: str) -> None:
+    """Messaggi che non spezzano le barre di avanzamento nel terminale."""
+    from tqdm import tqdm
+
+    tqdm.write(message)   # oltre questa attesa continua per una richiesta ci si ferma
+class GeminiClient:
+    def __init__(
+        self,
+        api_keys: Sequence[str],
+        settings: GeminiSettings,
+        client_factory: Callable[[str], Any] | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        clock: Callable[[], float] = time.monotonic,
+        log: Callable[[str], None] | None = None,
+    ):
+        if not api_keys:
+            raise GeminiNotConfiguredError(
+                "Nessuna chiave API Gemini trovata. Crea il file .env partendo da "
+                ".env.example e inserisci almeno una chiave (GEMINI_API_KEY_01=...)."
+            )
+        self.settings = settings
+        self._slots = [_KeySlot(i + 1, k) for i, k in enumerate(api_keys)]
+        self._client_factory = client_factory or self._default_factory
+        self._sleep = sleep
+        self._clock = clock
+        self._log = log or _default_log
+        self._lock = threading.Lock()
+        self._interval = 60.0 / settings.requests_per_minute_per_key
+        self._limit = _AdaptiveLimit(
+            ceiling_rpm=settings.requests_per_minute_per_key * len(api_keys),
+            start_rpm=settings.max_requests_per_minute_total,
+        )
+        self.usage = Usage()
+
+    @classmethod
+    def from_env(cls, settings: GeminiSettings, **kwargs: Any) -> GeminiClient:
+        return cls(load_api_keys(), settings, **kwargs)
+
+    @staticmethod
+    def _default_factory(key: str) -> Any:
+        from google import genai
+
+        return genai.Client(api_key=key)
+
+    @property
+    def parallelism(self) -> int:
+        return len(self._slots)
+
+    # --- gestione del pool -------------------------------------------------------
+    def _acquire(self) -> _KeySlot:
+        """Prenota la prossima chiave utilizzabile e un posto nel ritmo complessivo, poi attende."""
+        with self._lock:
+            now = self._clock()
+            usable = [s for s in self._slots if not math.isinf(s.paused_until)]
+            if not usable:
+                raise QuotaExhaustedError(
+                    "Tutte le chiavi API hanno esaurito la quota giornaliera. "
+                    "Rilancia più tardi (di solito la quota si azzera a mezzanotte, ora del Pacifico): "
+                    "il lavoro riprenderà da dove si è fermato."
+                )
+            slot = min(usable, key=lambda s: max(s.next_free_at, s.paused_until))
+            key_ready = max(slot.next_free_at, slot.paused_until, now)
+            start = self._limit.reserve(key_ready)
+            slot.next_free_at = start + self._interval
+            if slot.client is None:
+                slot.client = self._client_factory(slot.key)
+        wait = start - now
+        if wait > 0:
+            self._wait(wait)
+        return slot
+
+    def _on_quota_error(self, slot: _KeySlot, failure: _APIFailure) -> None:
+        with self._lock:
+            now = self._clock()
+            if failure.is_daily_quota:
+                if not math.isinf(slot.paused_until):
+                    slot.paused_until = math.inf
+                    remaining = sum(1 for s in self._slots if not math.isinf(s.paused_until))
+                    self._log(f"[chiave {slot.index}] quota giornaliera esaurita: chiave esclusa "
+                              f"(ne restano {remaining}).")
+                return
+            pause = failure.retry_delay or self.settings.quota_cooldown_seconds
+            slot.paused_until = max(slot.paused_until, now + pause)
+            before = self._limit.rpm
+            after = self._limit.on_quota(now, pause)
+            if after < before - 0.01:
+                self._log(f"Quota al minuto raggiunta: rallento a circa {after:.0f} richieste/minuto "
+                          f"in totale e attendo {pause:.0f}s.")
+
+    def _call(self, action: Callable[[Any], Any]) -> Any:
+        """Esegue ``action(client_sdk)`` con rotazione delle chiavi, ritmo adattivo e tentativi."""
+        last: _APIFailure | None = None
+        errors = 0                      # errori di rete/server (contano come tentativi)
+        waiting_since: float | None = None   # inizio di un'attesa per quote o sovraccarico
+        overload_attempts = 0
+        max_wait = self.settings.max_wait_minutes * 60
+
+        while errors < self.settings.max_retries:
+            self._check_cancel()
+            slot = self._acquire()
+            try:
+                result = action(slot.client)
+            except Exception as exc:
+                failure = _classify(exc)
+                if failure is None:
+                    raise
+                last = failure
+
+                now = self._clock()
+                if failure.status == 429:
+                    # Non è colpa della richiesta: si aspetta e si riprova, senza consumare tentativi.
+                    self._on_quota_error(slot, failure)
+                    waiting_since = waiting_since if waiting_since is not None else now
+                    if now - waiting_since > max_wait:
+                        raise QuotaExhaustedError(
+                            f"Quota esaurita da oltre {self.settings.max_wait_minutes:g} minuti. Rilancia più "
+                            "tardi: il lavoro riprenderà da dove si è fermato."
+                        ) from exc
+                    continue
+
+                if self._is_overloaded(failure):
+                    # Sovraccarico momentaneo dei server di Google (uguale per tutte le chiavi):
+                    # si riprova a intervallo FISSO, senza consumare tentativi, finché dura meno
+                    # di max_wait_minutes; poi ci si ferma in modo ordinato.
+                    waiting_since = waiting_since if waiting_since is not None else now
+                    overload_attempts += 1
+                    waited = now - waiting_since
+                    if waited > max_wait:
+                        raise ServiceUnavailableError(
+                            f"Gemini è sovraccarico da oltre {self.settings.max_wait_minutes:g} minuti. "
+                            "Riprova più tardi: il lavoro riprenderà da dove si è fermato."
+                        ) from exc
+                    delay = self._retry_delay()
+                    self._log(f"Gemini sovraccarico (503, alta richiesta): riprovo tra {delay:.0f}s "
+                              f"(tentativo {overload_attempts}, in attesa da {waited:.0f}s).")
+                    self._wait(delay)
+                    continue
+
+                if failure.status is None or failure.status in RETRYABLE_STATUS:
+                    errors += 1
+                    delay = self._retry_delay()
+                    self._log(f"[chiave {slot.index}] errore temporaneo ({failure}); riprovo tra {delay:.0f}s "
+                              f"(tentativo {errors} di {self.settings.max_retries}).")
+                    self._wait(delay)
+                    continue
+
+                raise GeminiError(f"Gemini ha rifiutato la richiesta ({failure}).") from exc
+            else:
+                with self._lock:
+                    if self._limit.on_success(self._clock()):
+                        pass  # aumento silenzioso: si segnalano solo i rallentamenti
+                return result
+
+        raise GeminiError(f"Richiesta fallita dopo ripetuti tentativi: {last}")
+
+    def _check_cancel(self) -> None:
+        event = _current_cancel()
+        if event is not None and event.is_set():
+            raise OperationCancelledError("Operazione fermata dall'utente.")
+
+    def _wait(self, seconds: float) -> None:
+        """Attesa interrompibile: se l'utente preme "Ferma" si esce subito."""
+        event = _current_cancel()
+        if event is not None and self._sleep is time.sleep:
+            if event.wait(seconds):
+                raise OperationCancelledError("Operazione fermata dall'utente.")
+            return
+        self._sleep(seconds)
+        self._check_cancel()
+
+    @staticmethod
+    def _is_overloaded(failure: _APIFailure) -> bool:
+        if failure.status in OVERLOAD_STATUS:
+            return True
+        text = failure.message.lower()
+        return failure.status in RETRYABLE_STATUS and any(w in text for w in _OVERLOAD_WORDS)
+
+    def _retry_delay(self) -> float:
+        """Attesa fissa con una piccola variazione casuale, per non far ripartire tutto insieme."""
+        return self.settings.retry_delay_seconds + random.uniform(0, 1)
+
+    # --- costruzione delle richieste ----------------------------------------------
+    def _image_parts(self, images: Sequence[Path]) -> list[Any]:
+        from google.genai import types
+
+        parts = []
+        for img in images:
+            path = Path(img)
+            if not path.exists():
+                raise FileNotFoundError(f"Immagine non trovata: {path}")
+            parts.append(types.Part.from_bytes(data=path.read_bytes(), mime_type="image/png"))
+        return parts
+
+    def _config(self, **extra: Any) -> Any:
+        from google.genai import types
+
+        if self.settings.media_resolution:
+            extra.setdefault(
+                "media_resolution", f"MEDIA_RESOLUTION_{self.settings.media_resolution.upper()}"
+            )
+        if self.settings.thinking_level:
+            extra.setdefault(
+                "thinking_config", types.ThinkingConfig(thinking_level=self.settings.thinking_level.upper())
+            )
+        return types.GenerateContentConfig(temperature=self.settings.temperature, **extra)
+
+    def _wait_until_active(self, client: Any, uploaded: Any, timeout: float = 180) -> Any:
+        """Attende che Gemini abbia elaborato il file caricato (stato ACTIVE)."""
+        waited = 0.0
+        while True:
+            state = getattr(uploaded, "state", None)
+            state = str(getattr(state, "name", state) or "").upper()
+            if "PROCESSING" not in state:
+                if "FAILED" in state:
+                    raise GeminiError(f"Gemini non è riuscito a elaborare il file {uploaded.name}.")
+                return uploaded
+            if waited >= timeout:
+                raise ConnectionError("il file caricato non è diventato disponibile in tempo")
+            self._wait(3)
+            waited += 3
+            uploaded = client.files.get(name=uploaded.name)
+
+    def _generate(
+        self,
+        prompt: str,
+        images: Sequence[Path],
+        pdf: Path | None,
+        model: str,
+        config: Any,
+        parse: Callable[[Any], Any],
+    ) -> Any:
+        """Chiamata generica: allegati (PDF e/o immagini) + prompt, con rotazione delle chiavi.
+
+        I PDF piccoli vengono inviati direttamente nella richiesta (*inline*); quelli più
+        grandi di ``INLINE_PDF_MAX_BYTES`` passano dalla Files API, che li carica a parte.
+        Il file caricato appartiene alla chiave che lo carica: l'upload avviene quindi
+        dentro ``action``, con il client della chiave scelta per quel tentativo.
+        """
+        from google.genai import types
+
+        image_parts = self._image_parts(images)
+        pdf_bytes: bytes | None = None
+        if pdf is not None:
+            pdf = Path(pdf)
+            if not pdf.exists():
+                raise FileNotFoundError(f"PDF non trovato: {pdf}")
+            if pdf.stat().st_size <= INLINE_PDF_MAX_BYTES:
+                pdf_bytes = pdf.read_bytes()
+
+        def action(client: Any) -> Any:
+            uploaded = None
+            parts: list[Any] = []
+            if pdf is not None:
+                if pdf_bytes is not None:
+                    parts.append(types.Part.from_bytes(data=pdf_bytes, mime_type="application/pdf"))
+                else:
+                    uploaded = self._wait_until_active(client, client.files.upload(file=str(pdf)))
+                    parts.append(uploaded)
+            parts.extend(image_parts)
+            parts.append(prompt)
+            try:
+                response = client.models.generate_content(model=model, contents=parts, config=config)
+                check_finish(response)
+                result = parse(response)
+                with self._lock:
+                    self.usage.add(response)
+                return result
+            finally:
+                if uploaded is not None:
+                    try:
+                        client.files.delete(name=uploaded.name)
+                    except Exception:
+                        pass  # il file scade comunque da solo dopo 48 ore
+
+        return self._call(action)
+
+    # --- API pubblica --------------------------------------------------------------
+    def generate_text(
+        self,
+        prompt: str,
+        images: Sequence[Path] = (),
+        pdf: Path | None = None,
+        model: str | None = None,
+    ) -> str:
+        model = model or (self.settings.model if images or pdf else self.settings.text_model)
+        return self._generate(
+            prompt, images, pdf, model, self._config(), lambda r: (r.text or "").strip()
+        )
+
+    def generate_json(
+        self,
+        prompt: str,
+        json_schema: dict[str, Any],
+        images: Sequence[Path] = (),
+        pdf: Path | None = None,
+        model: str | None = None,
+    ) -> Any:
+        """Chiede una risposta JSON conforme a ``json_schema`` (output strutturato)."""
+        model = model or self.settings.model
+        config = self._config(response_mime_type="application/json", response_json_schema=json_schema)
+
+        def parse(response: Any) -> Any:
+            text = response.text or ""
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError as e:
+                # Capita raramente (es. risposta troncata): la trattiamo come errore temporaneo.
+                raise ConnectionError(f"risposta JSON non valida ({e})") from e
+
+        return self._generate(prompt, images, pdf, model, config, parse)

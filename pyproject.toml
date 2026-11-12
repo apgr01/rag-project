@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-project"
+version = "0.2.0"
+description = "RAG vision-first per documenti PDF: ogni pagina viene descritta da Gemini Vision e indicizzata per la ricerca semantica."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Alessandro", email = "a.proietti00@gmail.com" }]
+dependencies = [
+    "google-genai>=1.0",   # SDK Gemini (vision, testo, output strutturati)
+    "pymupdf>=1.24",       # rendering PDF -> PNG
+    "pydantic>=2.0",       # validazione della configurazione
+    "pyyaml>=6.0",         # lettura configs/*.yaml
+    "python-dotenv>=1.0",  # caricamento chiavi API da .env
+    "tqdm>=4.66",          # barre di avanzamento
+    "fastapi>=0.110",      # interfaccia grafica: server locale
+    "uvicorn>=0.29",       # interfaccia grafica: server HTTP
+    "python-multipart>=0.0.9",  # interfaccia grafica: caricamento dei file
+]
+
+[project.optional-dependencies]
+# Modalità RAG (domande sui documenti): database vettoriale locale.
+# Non serve per l'indicizzazione in CSV.
+rag = [
+    "chromadb>=1.0",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+ragpdf = "ragpdf.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ragpdf = ["web/static/*"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.flake8-bugbear]
+# In FastAPI File(...) e Body(...) come valori di default sono l'uso previsto.
+extend-immutable-calls = ["fastapi.File", "fastapi.Body"]
+
+[tool.ruff.lint.per-file-ignores]
+# il modello HTML/JS incorporato ha righe lunghe per leggibilità
+"src/ragpdf/indexing/search_page.py" = ["E501"]
