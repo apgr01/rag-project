@@ -3,7 +3,7 @@
 Tutte le modifiche rilevanti al progetto sono documentate qui.
 Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
 
-## [Non rilasciato] — 0.2.0
+## [0.2.0] — 2026-11-12
 
 ### Aggiunto
 - **Gemini Snake**: mini gioco durante l'attesa dei lavori di Gemini nell'interfaccia, con

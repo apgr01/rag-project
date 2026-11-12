@@ -12,7 +12,7 @@ basato su un unico pilastro:
 
 | Modalità | Descrizione | Stato |
 |---|---|---|
-| **Indicizzazione** | PDF → CSV secondo una specifica dell'utente (righe, colonne, regole) | ✅ prima versione (`0.2.0`) |
+| **Indicizzazione** | PDF → CSV secondo una specifica dell'utente (righe, colonne, regole) | ✅ prima versione (`0.2.0`, 2026-11-12) |
 | **RAG** | Descrizione delle pagine, ricerca semantica, risposte con citazione delle fonti | ✅ funzionante, da migliorare |
 | **Struttura** | Albero del documento (capitoli, sezioni) in JSON | 🔜 da progettare |
 
