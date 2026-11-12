@@ -24,7 +24,7 @@ Decisi insieme e da rispettare in tutti gli step:
   chiavi) lo dice chiaramente e propone come procurarli o generarli.
 - **Generalità** — il contenuto del CSV dipende da ciò che l'utente chiede (istruzioni,
   CSV d'esempio), non dal codice. Nessuna regola specifica di un catalogo nel programma.
-- **Interfaccia: solo CLI** per ora, curata e leggibile su Windows.
+- **Interfaccia grafica** nel browser per l'uso quotidiano, CLI curata e leggibile su Windows.
 - **Embedding locali** multilingue per il RAG (niente quota per l'indicizzazione vettoriale).
 - **Modularità** — fasi separate e rilanciabili; ogni chiamata a Gemini si paga una volta.
 - **Didattico** — codice commentato, documentazione aggiornata, un commit per argomento.
@@ -67,6 +67,20 @@ Decisi insieme e da rispettare in tutti gli step:
 - [x] **Consumo e costi**: riepilogo di richieste e token; opzione `thinking_level`.
 - [x] **Test**: 136 test senza rete con Gemini simulato, più prove della sessione guidata in
   un terminale reale (pseudo-tty) e dell'interfaccia in Chromium (Playwright).
+
+## Fase 1 — Biblioteca e collaudo sui cataloghi reali
+
+- [x] **A · Biblioteca**: cartelle, tag, ricerca, scheda (descrizione, campi), collezioni di
+  pagine con tag fissi, progetto dalla selezione con pagine e obiettivo precompilati.
+- [ ] **B · Analisi con Gemini** di un catalogo: prompt predefinito modificabile, pagine scelte
+  dall'utente (estratto PDF) o PDF intero, gestione dei rifiuti per richieste troppo pesanti;
+  proposta di descrizione, tag, campi e collezioni da accettare o correggere.
+- [ ] **C · Raggruppamento**: azione sui cataloghi selezionati; Gemini riceve descrizioni e
+  campi e risponde con uno schema rigido (gruppi con commento, non accorpabili); report con
+  azioni per gruppo (crea progetto, tag comuni) e per i non accorpabili.
+
+## Altri passi della fase 0
+
 - [ ] **Step 3 — Qualità del retrieval (RAG)**: embedding multilingue locali configurabili,
   soglia di rilevanza.
 

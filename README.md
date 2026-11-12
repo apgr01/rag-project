@@ -74,7 +74,9 @@ ragpdf doctor --online
 ragpdf ui
 ```
 
-Si apre nel browser l'**interfaccia grafica**. Crei un **progetto** con uno o più PDF della
+Si apre nel browser l'**interfaccia grafica**. Nella **biblioteca** carichi i cataloghi in
+cartelle, li descrivi, dai loro dei tag, scegli i campi da indicizzare e segni le pagine
+(copertina, indice, pagine da indicizzare, pagine d'esempio...). Poi crei un **progetto** con uno o più PDF della
 stessa struttura (es. i cataloghi di un editore), scegli le pagine cliccando le miniature,
 Gemini propone cosa estrarre e prova l'estrazione su ogni PDF, tu correggi a parole (anche con
 note per singoli PDF); poi avvii l'indicizzazione e ottieni **un CSV unico** per tutti i PDF e
@@ -149,7 +151,8 @@ rag-project/
 ├── docs/                documentazione
 └── data/                IL TUO WORKSPACE (non versionato)
     ├── projects/<id>/   progetti: PDF, primer, specifica, note per PDF, configurazione
-    ├── documents/<id>/  PDF, immagini delle pagine, risultati per pagina
+    ├── documents/<id>/  PDF, immagini delle pagine, risultati per pagina, scheda della biblioteca
+    ├── library/         cartelle della biblioteca
     ├── primers/         primer
     ├── specs/           specifiche di indicizzazione
     └── exports/         CSV prodotti (per progetto: CSV unico, CSV per PDF, ricerca.html)

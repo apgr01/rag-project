@@ -74,6 +74,34 @@ ragpdf ui
 Il comando avvia un piccolo server **solo su questo computer** e apre il browser. Lascia
 aperta la finestra del terminale finché usi l'interfaccia; per chiuderla premi Ctrl+C.
 
+### Biblioteca: studiare i cataloghi prima di indicizzarli
+
+La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **cartelle**:
+
+1. **Carica** i PDF nella cartella aperta: trascinali, oppure *Scegli PDF* / *Scegli una
+   cartella*. Trascinando una cartella intera le sottocartelle vengono ricreate. Un PDF già
+   presente (stesso contenuto, anche con un altro nome) non viene duplicato.
+2. **Organizza**: crea cartelle (anche su più livelli, `Motori/Lombardini`), rinominale o
+   spostale; seleziona più cataloghi per spostarli, dare o togliere **tag**, eliminarli.
+3. **Cerca e filtra**: la casella di ricerca guarda nome, file, descrizione e tag; un clic su
+   un tag mostra i cataloghi con quel tag da tutte le cartelle (più tag: devono averli tutti).
+4. **Studia un catalogo** (clic sul nome):
+   - **Scheda**: titolo, cartella, tag e una descrizione libera di cosa contiene e com'è fatto.
+   - **Campi da indicizzare**: le colonne che vuoi nel CSV, con una breve descrizione
+     (es. `alesaggio` → "diametro del cilindro in mm"). Pagina e file li aggiunge il programma.
+   - **Pagine e collezioni**: sfoglia le miniature (frecce ← → per cambiare pagina); clic per
+     vedere una pagina, **Maiusc+clic** per selezionare un intervallo, poi scegli il tag e
+     aggiungi la collezione (es. 1-2 *Copertina*, 3-4 *Indice*, 9-250 *Da indicizzare*,
+     12-13 *Pagina d'esempio*). Una pagina può stare in più collezioni.
+5. **Crea il progetto**: seleziona i cataloghi simili e premi *Crea progetto…*. Le pagine *da
+   indicizzare* diventano le pagine del progetto, le *pagine d'esempio* sono già scelte nella
+   configurazione guidata e campi e descrizioni compongono l'obiettivo proposto (modificabile).
+
+Dalla scheda *Documenti* di un progetto puoi anche aggiungere PDF con **Scegli dalla
+biblioteca…**. Togliere un PDF da un progetto o eliminare un progetto **non** cancella il PDF:
+resta nella biblioteca con i suoi risultati. Si elimina dalla biblioteca, e solo se nessun
+progetto lo usa.
+
 ### Progetti: più PDF, un CSV
 
 Tutto è organizzato per **progetto**: uno o più PDF **con la stessa struttura** (per esempio

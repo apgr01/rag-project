@@ -30,7 +30,8 @@ src/ragpdf/
 │   ├── server.py       API JSON (FastAPI) sopra app.py e setup_session.py
 │   ├── jobs.py         lavori in background: avanzamento, annullamento
 │   └── static/         pagina HTML, CSS e JavaScript (senza librerie esterne);
-│                       snake.js è il mini gioco mostrato durante l'attesa
+│                       app.js progetti, library.js biblioteca,
+│                       snake.js il mini gioco mostrato durante l'attesa
 ├── app.py              strato applicativo: collega i pezzi, usato dalla CLI
 ├── setup_session.py    logica della configurazione guidata (giri, anteprima, salvataggio)
 ├── primer.py           bozza del primer da PDF intero o da un estratto
@@ -40,6 +41,7 @@ src/ragpdf/
 │   ├── config.py       configurazione validata (Pydantic)
 │   ├── workspace.py    struttura della cartella dati
 │   ├── projects.py     progetti: più PDF, impostazioni per PDF
+│   ├── library.py      biblioteca: cartelle, tag, campi, collezioni di pagine
 │   ├── documents.py    registro dei documenti (id, SHA-256, primer)
 │   ├── render.py       PDF -> PNG con cache
 │   ├── pdf_tools.py    estratti PDF, testo nativo ripulito
@@ -131,9 +133,34 @@ progetto ── documenti: alfa, beta, gamma
   un'informazione); i duplicati dentro un PDF sono già tolti in fase di assemblaggio.
 - **Contesto ereditato** solo dentro ciascun PDF: ogni documento viene assemblato a sé, poi i
   risultati vengono uniti.
-- **Compatibilità**: i documenti senza progetto (creati prima) diventano progetti da un PDF
-  all'avvio, con la loro sessione di configurazione. Un PDF tolto dall'ultimo progetto che lo
-  usa viene eliminato, altrimenti tornerebbe come progetto a sé.
+- **Compatibilità**: i documenti delle versioni precedenti senza progetto diventano progetti
+  da un PDF all'avvio, con la loro sessione di configurazione; poi ricevono la scheda della
+  biblioteca e da lì in avanti non vengono più toccati.
+
+## Biblioteca
+
+I PDF **vivono nella biblioteca**; i progetti li usano ma non li possiedono. Togliere un PDF da
+un progetto o eliminare un progetto non cancella il PDF né i suoi risultati; un PDF si elimina
+dalla biblioteca solo se nessun progetto lo usa.
+
+```
+data/documents/<id>/library.yaml    scheda: cartella, tag, descrizione, campi, collezioni
+data/library/folders.yaml           cartelle (anche vuote)
+```
+
+- **Cartelle**: percorsi testuali (`Motori/Lombardini`), un catalogo sta in una sola cartella.
+  Rinominare o spostare una cartella aggiorna le schede che contiene.
+- **Tag del catalogo**: liberi, senza doppioni (maiuscole e minuscole non contano). Filtrano
+  i cataloghi di tutte le cartelle.
+- **Campi**: le colonne desiderate (nome + descrizione facoltativa), nell'ordine.
+- **Collezioni di pagine**: intervalli continui con un **tag fisso** (`PAGE_TAGS` in
+  `core/library.py`) e un commento. I tag sono fissi perché il programma li usa: creando un
+  progetto dalla biblioteca le pagine `da-indicizzare` diventano le pagine del PDF nel
+  progetto, le pagine `esempio` quelle proposte nella configurazione guidata, campi e
+  descrizioni l'obiettivo proposto. Una pagina può stare in più collezioni.
+- **Scala**: l'interfaccia riceve l'elenco completo in una risposta (centinaia di schede sono
+  pochi KB) e filtra nel browser; le miniature vengono create solo quando servono e restano
+  in cache (`documents/<id>/thumbs/`).
 
 ## La configurazione guidata (`ragpdf setup`)
 

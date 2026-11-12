@@ -3,6 +3,23 @@
 Tutte le modifiche rilevanti al progetto sono documentate qui.
 Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
 
+## [Non rilasciato] — 0.3.0
+
+### Aggiunto
+- **Biblioteca dei cataloghi** nell'interfaccia: cartelle (anche caricando cartelle intere),
+  tag liberi con filtri e ricerca, scheda con descrizione e **campi da indicizzare**,
+  visualizzatore delle pagine con **collezioni di pagine** (intervalli con tag fissi:
+  da indicizzare, pagina d'esempio, copertina, indice, legenda, ...). Azioni su più cataloghi:
+  sposta, tag, crea progetto, elimina.
+- Progetto dalla biblioteca: pagine da indicizzare, pagine d'esempio, campi e descrizioni
+  precompilano progetto e configurazione guidata. Nei progetti, *Scegli dalla biblioteca…*.
+
+### Modificato
+- I PDF appartengono alla biblioteca: togliere un PDF da un progetto o eliminare un progetto
+  non cancella più il PDF né i suoi risultati. `ragpdf remove` rifiuta un PDF usato da un
+  progetto.
+- L'attributo `hidden` nasconde sempre gli elementi dell'interfaccia.
+
 ## [0.2.0] — 2026-11-12
 
 ### Aggiunto

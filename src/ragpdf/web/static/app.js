@@ -317,7 +317,11 @@ async function route() {
   stopGame();
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   try {
+    $$(".nav a").forEach(a => a.classList.toggle("active",
+      a.dataset.nav === (parts[0] === "biblioteca" ? "library" : "projects")));
     if (parts[0] === "p" && parts[1]) await renderProject(parts[1], parts[2] || "docs");
+    else if (parts[0] === "biblioteca" && parts[1] === "c" && parts[2]) await renderCatalog(parts[2]);
+    else if (parts[0] === "biblioteca") await renderLibrary(parts.slice(1).join("/"));
     else await renderHome();
   } catch (e) {
     view.innerHTML = `<div class="panel note error">${esc(e.message)}</div><p><a href="#/">Torna all'elenco</a></p>`;
@@ -405,9 +409,8 @@ async function renderHome() {
   $$("[data-delete]").forEach(b => b.addEventListener("click", async () => {
     const p = projects.find(x => x.id === b.dataset.delete);
     const ok = await confirmDialog({ title: "Eliminare il progetto?", danger: true, ok: "Elimina",
-      html: `<p>Verranno eliminati il progetto <strong>${esc(p.name)}</strong>, i suoi PDF copiati nel workspace
-             (${p.documents.length}) e <strong>tutti i loro risultati</strong>, salvo i PDF usati anche da altri progetti.
-             Primer, specifiche e CSV esportati restano.</p>` });
+      html: `<p>Verrà eliminato il progetto <strong>${esc(p.name)}</strong>. I suoi ${p.documents.length} PDF
+             restano nella biblioteca, insieme a primer, specifiche e CSV esportati.</p>` });
     if (ok) await busy(b, async () => { await api("DELETE", `/api/projects/${enc(p.id)}`); route(); });
   }));
 }
@@ -460,6 +463,8 @@ function renderDocs(ctx) {
       <h3>Aggiungi PDF</h3>
       <div class="drop" id="drop">Trascina qui uno o più PDF con la stessa struttura degli altri, oppure <u>clicca</u>
         <input type="file" id="file" accept=".pdf,application/pdf" multiple hidden></div>
+      <div class="row" style="margin-top:.5rem"><button class="secondary" id="from-library" type="button">Scegli dalla biblioteca…</button>
+        <span class="hint">I PDF caricati qui finiscono anche nella cartella principale della biblioteca.</span></div>
       <p class="hint" id="upload-status">${project.spec ? "I nuovi PDF useranno primer e specifica del progetto: poi indicizzali dalla scheda 2." : ""}</p>
     </div>
     <div class="panel">
@@ -491,6 +496,15 @@ function renderDocs(ctx) {
         <a href="#/p/${enc(pid)}/setup"><button type="button">${project.spec ? "Rivedi la configurazione" : "Avanti: configurazione"}</button></a></div>` : ""}
     </div>`;
   bindPageClicks(box, ctx.titles);
+  $("#from-library").addEventListener("click", async () => {
+    const ids = await pickFromLibrary(project.documents.map(d => d.id));
+    if (!ids.length) return;
+    await busy(null, async () => {
+      const r = await api("POST", `/api/projects/${enc(pid)}/documents/from-library`, { ids });
+      toast(`${r.added.length} PDF aggiunti dalla biblioteca.`);
+      ctx.refresh();
+    });
+  });
   dropZone($("#drop"), $("#file"), async files => {
     const n = await uploadPdfs(pid, files, $("#upload-status"));
     if (n) { toast(`${n} PDF aggiunti.`); ctx.refresh(); }
@@ -513,8 +527,8 @@ function renderDocs(ctx) {
     }));
     $(`[data-remove="${CSS.escape(d.id)}"]`).addEventListener("click", async e => {
       const ok = await confirmDialog({ title: "Togliere il PDF dal progetto?", danger: true, ok: "Togli",
-        html: `<p><strong>${esc(d.title)}</strong> verrà tolto dal progetto. Se non fa parte di altri progetti verrà
-               anche eliminato dal workspace, insieme ai suoi risultati.</p>` });
+        html: `<p><strong>${esc(d.title)}</strong> verrà tolto dal progetto. Il PDF e i risultati già ottenuti
+               restano nella biblioteca.</p>` });
       if (ok) await busy(e.target, async () => { await api("DELETE", `/api/projects/${enc(pid)}/documents/${enc(d.id)}`); ctx.refresh(); });
     });
   }
@@ -641,7 +655,7 @@ async function renderSetupForm(ctx, data) {
   drawThumbs();
 
   const goal = $("#goal");
-  goal.value = drafts.get(goalKey) || (session ? session.state.goal : "");
+  goal.value = drafts.get(goalKey) || (session ? session.state.goal : data.suggested_goal || "");
   goal.addEventListener("input", () => drafts.set(goalKey, goal.value));
 
   $("#reference").addEventListener("change", async e => {
