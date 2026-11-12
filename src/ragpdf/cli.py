@@ -298,7 +298,7 @@ def cmd_remove(app: App, args: argparse.Namespace) -> int:
     if not ui.ask_yes_no(f"Eliminare '{doc.id}' e tutti i suoi risultati?", default=False, assume_yes=args.yes):
         ui.info("Nessuna modifica.")
         return 0
-    app.documents.remove(doc)
+    app.delete_document(doc)   # rifiuta se un progetto lo usa
     ui.ok(f"Documento '{doc.id}' eliminato.")
     return 0
 
@@ -725,10 +725,8 @@ def cmd_project_add(app: App, args: argparse.Namespace) -> int:
 def cmd_project_remove_doc(app: App, args: argparse.Namespace) -> int:
     project = app.projects.get(args.project)
     doc = app.documents.get(args.doc)
-    if app.remove_from_project(project, doc):
-        ui.ok(f"'{doc.id}' tolto dal progetto ed eliminato (non apparteneva ad altri progetti).")
-    else:
-        ui.ok(f"'{doc.id}' tolto dal progetto (resta negli altri progetti che lo usano).")
+    app.remove_from_project(project, doc)
+    ui.ok(f"'{doc.id}' tolto dal progetto (il PDF resta nella biblioteca).")
     return 0
 
 

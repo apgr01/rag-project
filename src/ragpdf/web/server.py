@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -31,14 +31,16 @@ from ragpdf import __version__
 from ragpdf.app import App, PrimerMissingError
 from ragpdf.core.documents import Document, DocumentError, DuplicateDocumentError
 from ragpdf.core.gemini import GeminiError, load_api_keys
+from ragpdf.core.library import PAGE_TAGS, FieldDef, LibraryCard
 from ragpdf.core.manifest import DONE, Manifest
 from ragpdf.core.page_runner import RunControl
 from ragpdf.core.pdf_tools import has_text_layer, render_thumbnail
 from ragpdf.core.projects import DocumentSettings, Project, ProjectError
-from ragpdf.core.render import parse_page_ranges, render_pages
+from ragpdf.core.render import format_pages, parse_page_ranges, render_pages
 from ragpdf.core.workspace import slugify
 from ragpdf.indexing.extractor import Extractor, SpecChangedError, selected_pages
 from ragpdf.indexing.spec import SpecError, read_csv_rows
+from ragpdf.primer import MAX_SELECTED_PAGES
 from ragpdf.setup_session import (
     SetupError,
     SetupSession,
@@ -173,6 +175,19 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             "job": job.to_dict() if job else None,
         }
 
+    def goal_from_library(docs: list[Document]) -> str:
+        """Obiettivo proposto dai campi e dalle descrizioni scritti nella biblioteca."""
+        cards = [(d, app.library.card(d)) for d in docs]
+        fields = next((c.fields for _, c in cards if c.fields), [])
+        lines = [f"- {f.name}" + (f": {f.description}" if f.description else "") for f in fields]
+        described = [f"- {d.info.title}: {c.description.strip()}" for d, c in cards if c.description.strip()]
+        parts = []
+        if lines:
+            parts.append("Colonne del CSV (dalla biblioteca):\n" + "\n".join(lines))
+        if described:
+            parts.append("Descrizione dei cataloghi:\n" + "\n".join(described))
+        return "\n\n".join(parts)
+
     # ------------------------------------------------------------------ stato
     @api.get("/api/status")
     def status():
@@ -212,7 +227,8 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
     def delete_project(pid: str):
         project = project_or_404(pid)
         no_job(project)
-        return {"deleted": project.id, "documents_deleted": app.remove_project(project)}
+        app.remove_project(project)
+        return {"deleted": project.id}
 
     @api.post("/api/projects/{pid}/documents")
     def upload_document(pid: str, file: UploadFile = File(...)):
@@ -240,7 +256,8 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         project = project_or_404(pid)
         no_job(project)
         doc = doc_of(project, doc_id)
-        return {"removed": doc.id, "deleted": app.remove_from_project(project, doc)}
+        app.remove_from_project(project, doc)
+        return {"removed": doc.id}
 
     @api.put("/api/projects/{pid}/documents/{doc_id}/settings")
     def document_settings(pid: str, doc_id: str, body: dict = Body(...)):
@@ -252,6 +269,167 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         project.set_settings(doc.id, DocumentSettings(notes=str(body.get("notes") or ""), pages=pages))
         project.save()
         return doc_status(project, doc)
+
+    # ------------------------------------------------------------------ biblioteca
+    def upload_to_temp(file: UploadFile, tmp: str) -> Path:
+        name = Path(file.filename or "documento.pdf").name
+        if not name.lower().endswith(".pdf"):
+            raise HTTPException(400, f"{name}: il file deve essere un PDF.")
+        target = Path(tmp) / name
+        with open(target, "wb") as out:
+            shutil.copyfileobj(file.file, out)
+        return target
+
+    def catalog_summary(doc: Document, card: LibraryCard, projects: list[Project]) -> dict[str, Any]:
+        return {
+            "id": doc.id, "title": doc.info.title, "source_filename": doc.info.source_filename,
+            "page_count": doc.info.page_count, "added_at": doc.info.added_at,
+            "folder": card.folder, "tags": card.tags, "description": card.description,
+            "fields": len(card.fields), "collections": len(card.collections),
+            "to_index": len(card.pages_with_tag("da-indicizzare")),
+            "projects": [{"id": p.id, "name": p.info.name} for p in projects if doc.id in p.info.documents],
+        }
+
+    def docs_from_body(body: dict) -> list[Document]:
+        ids = body.get("ids") or []
+        if not isinstance(ids, list) or not ids:
+            raise ValueError("Seleziona almeno un catalogo.")
+        return [app.documents.get(str(i)) for i in ids]
+
+    @api.get("/api/library/catalogs")
+    def library_overview():
+        """Tutta la biblioteca in una risposta: filtri e ricerca li fa il browser."""
+        projects = app.projects.list()
+        docs = app.documents.list()
+        cards = [app.library.card(d) for d in docs]
+        tags: dict[str, int] = {}
+        for card in cards:
+            for t in card.tags:
+                key = next((k for k in tags if k.casefold() == t.casefold()), t)
+                tags[key] = tags.get(key, 0) + 1
+        return {
+            "folders": app.library.folders(cards),
+            "tags": [{"name": k, "count": v} for k, v in sorted(tags.items(), key=lambda x: x[0].casefold())],
+            "page_tags": [{"id": k, "label": v[0], "help": v[1]} for k, v in PAGE_TAGS.items()],
+            "catalogs": [catalog_summary(d, c, projects) for d, c in zip(docs, cards, strict=True)],
+        }
+
+    @api.post("/api/library/catalogs")
+    def library_upload(file: UploadFile = File(...), folder: str = Form("")):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = upload_to_temp(file, tmp)
+            try:
+                doc = app.add_to_library(target, folder=folder)
+                already = False
+            except DuplicateDocumentError as e:
+                doc = app.documents.get(e.existing.id)
+                already = True
+        card = app.library.card(doc)
+        result = catalog_summary(doc, card, app.projects.list())
+        result.update(already_present=already, scanned=not already and not has_text_layer(doc.pdf_path))
+        return result
+
+    @api.get("/api/library/catalogs/{doc_id}")
+    def library_catalog(doc_id: str):
+        doc = app.documents.get(doc_id)
+        card = app.library.card(doc)
+        return {**catalog_summary(doc, card, app.projects.list()), **card.model_dump(),
+                "scanned": not has_text_layer(doc.pdf_path)}
+
+    @api.put("/api/library/catalogs/{doc_id}")
+    def library_update(doc_id: str, body: dict = Body(...)):
+        """Aggiorna titolo, descrizione, tag, campi e cartella (solo le voci presenti)."""
+        doc = app.documents.get(doc_id)
+        card = app.library.card(doc)
+        if "title" in body:
+            title = " ".join(str(body["title"] or "").split())
+            if not title:
+                raise ValueError("Il titolo non può essere vuoto.")
+            doc.info.title = title
+            doc.save()
+        if "description" in body:
+            card.description = str(body["description"] or "").strip()
+        if "tags" in body:
+            card.tags = [str(t) for t in body["tags"] or []]
+        if "folder" in body:
+            card.folder = str(body["folder"] or "")
+        if "fields" in body:
+            fields = [FieldDef.model_validate(f) for f in body["fields"] or [] if str(f.get("name", "")).strip()]
+            names = [f.name.casefold() for f in fields]
+            if len(names) != len(set(names)):
+                raise ValueError("Ci sono due campi con lo stesso nome.")
+            card.fields = fields
+        app.library.save_card(doc, card)
+        return library_catalog(doc_id)
+
+    @api.delete("/api/library/catalogs/{doc_id}")
+    def library_delete(doc_id: str):
+        doc = app.documents.get(doc_id)
+        app.delete_document(doc)
+        return {"deleted": doc.id}
+
+    @api.post("/api/library/catalogs/{doc_id}/collections")
+    def collection_add(doc_id: str, body: dict = Body(...)):
+        doc = app.documents.get(doc_id)
+        app.library.add_collection(doc, int(body["start"]), int(body["end"]), str(body.get("tag", "")),
+                                   str(body.get("comment") or ""))
+        return library_catalog(doc_id)
+
+    @api.put("/api/library/catalogs/{doc_id}/collections/{coll_id}")
+    def collection_update(doc_id: str, coll_id: str, body: dict = Body(...)):
+        doc = app.documents.get(doc_id)
+        app.library.update_collection(doc, coll_id, int(body["start"]), int(body["end"]),
+                                      str(body.get("tag", "")), str(body.get("comment") or ""))
+        return library_catalog(doc_id)
+
+    @api.delete("/api/library/catalogs/{doc_id}/collections/{coll_id}")
+    def collection_delete(doc_id: str, coll_id: str):
+        app.library.remove_collection(app.documents.get(doc_id), coll_id)
+        return library_catalog(doc_id)
+
+    @api.post("/api/library/move")
+    def library_move(body: dict = Body(...)):
+        return {"folder": app.library.move(docs_from_body(body), str(body.get("folder") or ""))}
+
+    @api.post("/api/library/tags")
+    def library_tags(body: dict = Body(...)):
+        app.library.retag(docs_from_body(body), add=body.get("add") or [], remove=body.get("remove") or [])
+        return {"ok": True}
+
+    @api.post("/api/library/folders")
+    def folder_create(body: dict = Body(...)):
+        return {"folder": app.library.create_folder(str(body.get("path") or ""))}
+
+    @api.put("/api/library/folders")
+    def folder_rename(body: dict = Body(...)):
+        return {"folder": app.library.rename_folder(str(body.get("path") or ""), str(body.get("new_path") or ""))}
+
+    @api.delete("/api/library/folders")
+    def folder_delete(path: str):
+        app.library.delete_folder(path)
+        return {"deleted": path}
+
+    @api.post("/api/library/projects")
+    def project_from_library(body: dict = Body(...)):
+        name = str(body.get("name") or "").strip()
+        if not name:
+            raise ValueError("Dai un nome al progetto.")
+        return project_summary(app.create_project_from_library(name, docs_from_body(body)))
+
+    @api.post("/api/projects/{pid}/documents/from-library")
+    def project_add_from_library(pid: str, body: dict = Body(...)):
+        project = project_or_404(pid)
+        no_job(project)
+        added = []
+        for doc in docs_from_body(body):
+            if doc.id not in project.info.documents:
+                app.projects.add_document(project, doc.id)
+                pages = app.library.card(doc).pages_with_tag("da-indicizzare")
+                if pages:
+                    project.set_settings(doc.id, DocumentSettings(pages=format_pages(pages)))
+                    project.save()
+                added.append(doc.id)
+        return {"added": added}
 
     # ------------------------------------------------------------------ pagine dei PDF
     @api.get("/api/documents/{doc_id}/thumb/{page}")
@@ -383,9 +561,12 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         project = project_or_404(pid)
         session = SetupSession.load(app, project)
         docs = app.project_documents(project)
+        # le pagine d'esempio e i campi segnati nella biblioteca hanno la precedenza
+        examples = app.example_page_refs(docs, MAX_SELECTED_PAGES)
         return {
             "session": session_view(session) if session else None,
-            "suggested_pages": [list(r) for r in default_context_refs(docs)],
+            "suggested_pages": [list(r) for r in (examples or default_context_refs(docs))],
+            "suggested_goal": goal_from_library(docs),
         }
 
     @api.post("/api/projects/{pid}/setup")

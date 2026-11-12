@@ -16,8 +16,10 @@ from pathlib import Path
 from ragpdf.core.config import Config, load_config
 from ragpdf.core.documents import Document, DocumentStore
 from ragpdf.core.gemini import GeminiClient, LLMClient
+from ragpdf.core.library import Library, LibraryCard, LibraryError
 from ragpdf.core.manifest import Manifest
-from ragpdf.core.projects import Project, ProjectStore
+from ragpdf.core.projects import DocumentSettings, Project, ProjectStore
+from ragpdf.core.render import format_pages
 from ragpdf.core.workspace import Workspace
 from ragpdf.indexing.assemble import AssembledIndex, assemble, merge
 from ragpdf.indexing.export import write_anomalies_by_document, write_index
@@ -59,6 +61,7 @@ class App:
         self.workspace = Workspace(self.config.workspace_path).ensure()
         self.documents = DocumentStore(self.workspace)
         self.projects = ProjectStore(self.workspace)
+        self.library = Library(self.workspace, self.documents)
         self._client = client
         self.events: deque[dict] = deque(maxlen=300)
         self.ensure_projects()
@@ -76,14 +79,19 @@ class App:
 
     # --- progetti -------------------------------------------------------------------
     def ensure_projects(self) -> None:
-        """Ogni documento appartiene ad almeno un progetto.
+        """Aggiorna i dati delle versioni precedenti.
 
-        I documenti aggiunti prima dei progetti (o fuori da un progetto) diventano progetti
-        con un solo PDF, con lo stesso id, primer e specifica; la loro sessione di
-        configurazione guidata viene spostata nel progetto.
+        - I documenti aggiunti prima dei progetti (senza progetto e senza scheda della
+          biblioteca) diventano progetti con un solo PDF, con lo stesso id, primer e
+          specifica; la loro sessione di configurazione guidata viene spostata nel progetto.
+        - Ogni documento ottiene la sua scheda della biblioteca (nella cartella principale):
+          da qui in poi i PDF vivono nella biblioteca e possono anche non stare in un progetto.
         """
         known = {d for p in self.projects.list() for d in p.info.documents}
         for doc in self.documents.list():
+            if self.library.has_card(doc):
+                continue
+            self.library.save_card(doc, LibraryCard())
             if doc.id in known:
                 continue
             project = self.projects.create(doc.info.title, [doc.id], project_id=doc.id,
@@ -93,36 +101,55 @@ class App:
                 shutil.move(str(old_setup), str(project.folder / "setup"))
 
     def add_document(self, pdf_path: Path, project: Project | None = None, doc_id: str | None = None) -> Document:
-        """Aggiunge un PDF; senza progetto ne crea uno con solo quel PDF."""
+        """Aggiunge un PDF alla biblioteca e a un progetto; senza progetto ne crea uno con
+        solo quel PDF (comportamento della CLI)."""
         doc = self.documents.add(Path(pdf_path), doc_id=doc_id)
+        self.library.save_card(doc, LibraryCard())
         if project is None:
             self.projects.create(doc.info.title, [doc.id], project_id=doc.id)
         else:
             self.projects.add_document(project, doc.id)
         return doc
 
-    def remove_from_project(self, project: Project, doc: Document) -> bool:
-        """Toglie un documento dal progetto; se non appartiene ad altri progetti lo elimina.
+    def add_to_library(self, pdf_path: Path, folder: str = "") -> Document:
+        """Aggiunge un PDF alla biblioteca, nella cartella indicata, senza progetto."""
+        doc = self.documents.add(Path(pdf_path))
+        self.library.save_card(doc, LibraryCard(folder=folder))
+        return doc
 
-        (Un documento senza progetto verrebbe altrimenti ritrasformato in un progetto a sé.)
-        Restituisce True se il documento è stato eliminato.
-        """
+    def remove_from_project(self, project: Project, doc: Document) -> None:
+        """Toglie un documento dal progetto: il PDF resta nella biblioteca."""
         self.projects.remove_document(project, doc.id)
-        if not self.projects.containing(doc.id):
-            self.documents.remove(doc)
-            return True
-        return False
 
-    def remove_project(self, project: Project) -> list[str]:
-        """Elimina il progetto e i suoi documenti che non appartengono ad altri progetti."""
-        removed = []
-        for doc in self.project_documents(project):
-            self.projects.remove_document(project, doc.id)
-            if not self.projects.containing(doc.id):
-                self.documents.remove(doc)
-                removed.append(doc.id)
+    def remove_project(self, project: Project) -> None:
+        """Elimina il progetto; i suoi PDF (e i risultati) restano nella biblioteca."""
         self.projects.remove(project)
-        return removed
+
+    def delete_document(self, doc: Document) -> None:
+        """Elimina un PDF dalla biblioteca, con pagine e risultati; solo se nessun progetto lo usa."""
+        using = self.projects.containing(doc.id)
+        if using:
+            names = ", ".join(f"'{p.info.name}'" for p in using)
+            raise LibraryError(f"'{doc.info.title}' è usato dai progetti {names}: toglilo prima dai progetti.")
+        self.documents.remove(doc)
+
+    def create_project_from_library(self, name: str, docs: list[Document]) -> Project:
+        """Nuovo progetto con i cataloghi scelti nella biblioteca.
+
+        Le collezioni "da indicizzare" diventano le pagine da indicizzare di ciascun PDF.
+        """
+        project = self.projects.create(name, [d.id for d in docs])
+        for doc in docs:
+            pages = self.library.card(doc).pages_with_tag("da-indicizzare")
+            if pages:
+                project.set_settings(doc.id, DocumentSettings(pages=format_pages(pages)))
+        project.save()
+        return project
+
+    def example_page_refs(self, docs: list[Document], limit: int) -> list[tuple[str, int]]:
+        """Pagine segnate come "pagina d'esempio" nella biblioteca, al massimo ``limit``."""
+        refs = [(d.id, p) for d in docs for p in self.library.card(d).pages_with_tag("esempio")]
+        return refs[:limit]
 
     def project_documents(self, project: Project) -> list[Document]:
         docs = []

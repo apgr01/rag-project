@@ -70,11 +70,13 @@ def test_projects_and_documents(web, pdf_factory):
     assert s["settings"] == {"notes": "nota B", "pages": "2-"}
     assert client.put(f"/api/projects/{pid}/documents/beta/settings", json={"pages": "9"}).status_code == 400
 
-    # togliere: 'alfa' resta (è anche in 'altro'), 'beta' viene eliminato
-    assert client.delete(f"/api/projects/{pid}/documents/alfa").json()["deleted"] is False
-    assert client.delete(f"/api/projects/{pid}/documents/beta").json()["deleted"] is True
+    # togliere dal progetto o eliminare il progetto: i PDF restano nella biblioteca
+    assert client.delete(f"/api/projects/{pid}/documents/alfa").json()["removed"] == "alfa"
+    assert client.delete(f"/api/projects/{pid}/documents/beta").json()["removed"] == "beta"
     assert client.get(f"/api/projects/{pid}").json()["documents"] == []
-    assert client.delete(f"/api/projects/{other}").json()["documents_deleted"] == ["alfa"]
+    assert client.delete(f"/api/projects/{other}").json()["deleted"] == other
+    ids = {c["id"] for c in client.get("/api/library/catalogs").json()["catalogs"]}
+    assert ids == {"alfa", "beta"}
 
 
 def test_full_project_flow(web, pdf_factory, tmp_path):
