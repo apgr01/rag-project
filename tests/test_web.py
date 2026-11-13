@@ -70,7 +70,7 @@ def test_projects_and_documents(web, pdf_factory):
 
     # impostazioni per PDF
     s = client.put(f"/api/projects/{pid}/documents/beta/settings", json={"notes": "nota B", "pages": "2-"}).json()
-    assert s["settings"] == {"notes": "nota B", "pages": "2-"}
+    assert s["settings"] == {"notes": "nota B", "pages": "2-", "collections": []}
     assert client.put(f"/api/projects/{pid}/documents/beta/settings", json={"pages": "9"}).status_code == 400
 
     # togliere dal progetto o eliminare il progetto: i PDF restano nella biblioteca

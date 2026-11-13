@@ -9,7 +9,10 @@ Ogni documento può avere delle **impostazioni proprie**, facoltative:
 - ``notes``: istruzioni in più valide solo per quel PDF (es. "in questo catalogo la
   versione è scritta sotto il nome del motore"); vengono aggiunte alle istruzioni della
   specifica solo per quel documento;
-- ``pages``: le pagine da indicizzare, se diverse da quelle della specifica.
+- ``pages``: le pagine da indicizzare, se diverse da quelle della specifica;
+- ``collections``: le collezioni della biblioteca da cui vengono ``pages``. Le pagine sono una
+  **copia**: se nella biblioteca le collezioni cambiano, il progetto non cambia da solo (le
+  pagine fanno parte delle regole) ma segnala la differenza e si aggiorna su richiesta.
 
 Le colonne restano le stesse per tutti i documenti: è la condizione per poter avere un
 CSV unico.
@@ -39,10 +42,11 @@ from ragpdf.core.workspace import Workspace, slugify
 class DocumentSettings(BaseModel):
     notes: str = ""
     pages: str | None = None
+    collections: list[str] = Field(default_factory=list)   # id delle collezioni della biblioteca
 
     @property
     def is_empty(self) -> bool:
-        return not self.notes.strip() and not self.pages
+        return not self.notes.strip() and not self.pages and not self.collections
 
 
 class ProjectInfo(BaseModel):

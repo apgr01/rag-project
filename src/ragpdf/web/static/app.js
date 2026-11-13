@@ -468,7 +468,17 @@ async function renderProject(pid, tab) {
 // ------------------------------------------------------------------ DOCUMENTI
 function renderDocs(ctx) {
   const { project, pid, box } = ctx;
+  const changes = project.library_changes || [];
   box.innerHTML = `
+    ${changes.length ? `<div class="panel note warn">
+      <strong>La biblioteca è cambiata</strong> per ${changes.length} PDF: le collezioni scelte come pagine da indicizzare
+      non coincidono più con quelle copiate nel progetto.
+      <ul class="small">${changes.map(c => `<li><strong>${esc(c.title)}</strong>: nel progetto pagine ${esc(c.pages || "—")},
+        nella biblioteca ${c.library_pages ? `pagine ${esc(c.library_pages)}` : "<em>nessuna</em>"}
+        ${c.missing ? ` (${c.missing} collezion${c.missing === 1 ? "e eliminata" : "i eliminate"})` : ""}</li>`).join("")}</ul>
+      <div class="row"><span class="hint">Le pagine fanno parte delle regole: aggiornandole, i PDF già indicizzati andranno rifatti.</span>
+        <span class="spacer"></span><button id="lib-update" type="button">Aggiorna dalla biblioteca</button></div>
+    </div>` : ""}
     <div class="panel">
       <h3>Aggiungi PDF</h3>
       <div class="drop" id="drop">Trascina qui uno o più PDF con la stessa struttura degli altri, oppure <u>clicca</u>
@@ -492,14 +502,25 @@ function renderDocs(ctx) {
               ${d.library && d.library.description ? `<br><span class="small">${esc(d.library.description.length > 180 ? d.library.description.slice(0, 180) + "…" : d.library.description)}</span>` : ""}
               ${d.library && d.library.data.length ? `<br><span class="small muted">Dati presenti:</span> ${tagBadges(d.library.data)}` : ""}</div>
             <span class="spacer"></span>
-            ${d.settings.notes ? '<span class="badge">note</span>' : ""}${d.settings.pages ? `<span class="badge">pagine ${esc(d.settings.pages)}</span>` : ""}
+            ${d.settings.notes ? '<span class="badge">note</span>' : ""}${d.settings.pages ? `<span class="badge" title="${d.settings.collections.length ? "Dalle collezioni della biblioteca" : "Scritte a mano"}">pagine ${esc(d.settings.pages)}${d.settings.collections.length ? " 📚" : ""}</span>` : ""}
             <button class="secondary" data-edit="${esc(d.id)}" type="button">Note e pagine</button>
             <button class="secondary" data-remove="${esc(d.id)}" type="button">Togli</button>
           </div>
           <div id="edit-${esc(d.id)}" hidden>
             <label>Note per questo PDF</label>
             <textarea data-notes="${esc(d.id)}" rows="3" placeholder="Istruzioni in più valide solo per questo PDF"></textarea>
-            <label>Pagine da indicizzare <span class="muted small">(vuoto = quelle della specifica)</span></label>
+            <label>Pagine da indicizzare</label>
+            ${d.library && d.library.collections.length ? `<p class="hint">Spunta le collezioni della
+              <a href="#/biblioteca/c/${enc(d.id)}">scheda</a> da indicizzare (di solito quelle <em>Dati</em>): le loro pagine vengono
+              copiate nel progetto.</p>
+            <div class="coll-pick">${[...d.library.collections].sort((x, y) => (y.tag === "dati") - (x.tag === "dati") || x.start - y.start).map(c => `
+              <label class="row" style="font-weight:normal;margin:.1rem 0">
+                <input type="checkbox" data-coll="${esc(d.id)}" value="${esc(c.id)}" data-start="${c.start}" data-end="${c.end}"
+                  ${d.settings.collections.includes(c.id) ? "checked" : ""}>
+                ${pageTagChip(c.tag, c.label)} <span>pagine ${c.start === c.end ? c.start : `${c.start}-${c.end}`}</span>
+                ${c.comment ? `<span class="muted small">— ${esc(c.comment)}</span>` : ""}</label>`).join("")}</div>
+            <label style="font-weight:normal" class="small">…oppure scrivile a mano <span class="muted">(vuoto = quelle della specifica)</span></label>`
+            : `<p class="hint">La <a href="#/biblioteca/c/${enc(d.id)}">scheda</a> non ha collezioni: scrivi le pagine a mano (vuoto = quelle della specifica).</p>`}
             <input type="text" data-pages="${esc(d.id)}" placeholder="es. 5-">
             <div class="row" style="margin-top:.5rem"><span class="spacer"></span>
               <button data-save="${esc(d.id)}" type="button">Salva</button></div>
@@ -509,6 +530,20 @@ function renderDocs(ctx) {
         <a href="#/p/${enc(pid)}/setup"><button type="button">${project.spec ? "Rivedi la configurazione" : "Avanti: configurazione"}</button></a></div>` : ""}
     </div>`;
   bindPageClicks(box, ctx.titles);
+  if ($("#lib-update")) $("#lib-update").addEventListener("click", async e => {
+    const indexed = changes.filter(c => (project.documents.find(d => d.id === c.doc_id) || {}).done);
+    const ok = await confirmDialog({ title: "Aggiornare le pagine dalla biblioteca?", ok: "Aggiorna", html: `
+      <p>Le pagine da indicizzare di ${changes.map(c => `<strong>${esc(c.title)}</strong>`).join(", ")} verranno ricopiate
+        dalle collezioni scelte (quelle eliminate vengono tolte).</p>
+      ${indexed.length ? `<p class="note warn">Già indicizzati, andranno rifatti: ${indexed.map(c => esc(c.title)).join(", ")}
+        (solo questi PDF, dalla scheda 2).</p>` : ""}` });
+    if (!ok) return;
+    await busy(e.target, async () => {
+      const r = await api("POST", `/api/projects/${enc(pid)}/library-update`, { docs: changes.map(c => c.doc_id) });
+      toast(`Pagine aggiornate per ${r.updated.length} PDF.`);
+      ctx.refresh();
+    });
+  });
   $("#from-library").addEventListener("click", async () => {
     const ids = await pickFromLibrary(project.documents.map(d => d.id));
     if (!ids.length) return;
@@ -527,13 +562,24 @@ function renderDocs(ctx) {
     area.value = d.settings.notes || "";
     area.dataset.original = area.value;
     pages.value = d.settings.pages || "";
+    const boxes = $$(`[data-coll="${CSS.escape(d.id)}"]`);
+    const chosen = () => boxes.filter(b => b.checked);
+    // spuntare le collezioni scrive le pagine; scriverle a mano toglie le spunte
+    boxes.forEach(b => b.addEventListener("change", () => {
+      const list = [];
+      chosen().forEach(x => { for (let p = +x.dataset.start; p <= +x.dataset.end; p++) list.push(p); });
+      pages.value = formatPages(list);
+    }));
+    pages.addEventListener("input", () => boxes.forEach(b => { b.checked = false; }));
     $(`[data-edit="${CSS.escape(d.id)}"]`).addEventListener("click", () => {
       const panel = $(`#edit-${CSS.escape(d.id)}`);
       panel.hidden = !panel.hidden;
     });
     $(`[data-save="${CSS.escape(d.id)}"]`).addEventListener("click", e => busy(e.target, async () => {
-      if (pages.value.trim()) parsePages(pages.value, d.page_count);
-      await api("PUT", `/api/projects/${enc(pid)}/documents/${enc(d.id)}/settings`, { notes: area.value, pages: pages.value });
+      const collections = chosen().map(b => b.value);
+      if (!collections.length && pages.value.trim()) parsePages(pages.value, d.page_count);
+      await api("PUT", `/api/projects/${enc(pid)}/documents/${enc(d.id)}/settings`,
+        { notes: area.value, pages: pages.value, collections });
       area.dataset.original = area.value;
       toast("Salvato. Se il PDF era già indicizzato, andrà rifatto (scheda 2).");
       ctx.refresh();

@@ -169,7 +169,16 @@ elaborate solo le loro pagine). Il nome di ogni PDF porta alla sua **scheda dell
 sotto vedi la sua descrizione e i dati presenti. Per ogni PDF puoi impostare, facoltativamente:
 - **note**: istruzioni in più valide solo per quel PDF, per le differenze o le particolarità
   da segnalare (es. "in questo catalogo la versione è scritta sotto il nome del motore");
-- **pagine da indicizzare**, se diverse dagli altri (es. `5-` se ha 4 pagine introduttive).
+- **pagine da indicizzare**: si scelgono **spuntando le collezioni** della sua scheda (di
+  default quelle *Dati*, già spuntate quando il PDF arriva dalla biblioteca), oppure si
+  scrivono a mano (es. `5-` se ha 4 pagine introduttive). Il badge 📚 indica le pagine prese
+  dalla biblioteca.
+
+Le pagine sono una **copia**: se poi modifichi le collezioni nella biblioteca, il progetto non
+cambia da solo (le pagine fanno parte delle regole), ma in cima ai *Documenti* compare l'avviso
+**La biblioteca è cambiata** con le differenze; *Aggiorna dalla biblioteca* ricopia le pagine
+e dice quali PDF già indicizzati andranno rifatti. Descrizioni e dati presenti invece si
+leggono sempre in diretta.
 
 Le **colonne** restano le stesse per tutti: è ciò che permette il CSV unico. Cambiando le note
 di un PDF andrà reindicizzato solo quel PDF.
@@ -189,7 +198,9 @@ indicazioni*, e ogni versione proposta viene confrontata con le colonne del prog
 coincidono compare un avviso con le differenze e il pulsante *Chiedi a Gemini di correggerle*;
 salvare comunque richiede una conferma, e l'avviso resta nelle schede Impostazioni e
 Indicizzazione finché non si rifà la configurazione.
-1. Scegli le pagine da mostrare a Gemini. Con più PDF c'è una scheda per ciascuno: puoi
+1. Scegli le pagine da mostrare a Gemini. La proposta iniziale viene dalla mappa della
+   biblioteca: le collezioni *Indice*, *Legenda* e *Pagina d'esempio* di ogni PDF (altrimenti le
+   prime pagine più alcune distribuite). Con più PDF c'è una scheda per ciascuno: puoi
    prendere, per esempio, indice e legenda da un catalogo e due schede tipo da un altro.
    Clic sulle miniature (Maiusc+clic per un intervallo, doppio clic per ingrandire), oppure
    scrivi le pagine nel campo di testo. Il riepilogo sotto mostra tutto ciò che hai scelto.

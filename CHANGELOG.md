@@ -19,6 +19,10 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   colonne nell'ordine del CSV con la copertura nei PDF (dai dati presenti), altre indicazioni.
   Le colonne sono vincolanti: la configurazione guidata le passa a Gemini e confronta ogni
   versione della specifica, con avviso, correzione proposta e conferma al salvataggio.
+- **Pagine da indicizzare scelte dalle collezioni** della biblioteca (copiate nel progetto),
+  avviso *La biblioteca è cambiata* con le differenze e pulsante **Aggiorna dalla biblioteca**.
+  Le pagine proposte da mostrare a Gemini nella configurazione vengono dalla mappa (indice,
+  legenda, pagine d'esempio).
 - La configurazione guidata riceve le **schede della biblioteca** dei PDF; nei *Documenti* del
   progetto ogni PDF rimanda alla sua scheda e ne mostra descrizione e dati presenti.
 - **Raggruppamento proposto da Gemini**: dai cataloghi selezionati nella biblioteca, una sola
@@ -37,6 +41,8 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   non cancella più il PDF né i suoi risultati. `ragpdf remove` rifiuta un PDF usato da un
   progetto.
 - L'attributo `hidden` nasconde sempre gli elementi dell'interfaccia.
+- Scheda del catalogo: scrivendo l'intervallo di una nuova collezione i campi *da* e *a* non
+  vengono più riscritti mentre si digita (prima potevano produrre un intervallo sbagliato).
 - Biblioteca: i "campi" diventano **dati presenti**, un inventario dei dati indicizzabili senza
   ordine (le colonne le decide il progetto); il tag di pagina *da indicizzare* diventa **dati**
   (le schede e le analisi già salvate vengono convertite in lettura).

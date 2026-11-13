@@ -140,16 +140,88 @@ class App:
         """
         project = self.projects.create(name, [d.id for d in docs])
         for doc in docs:
-            pages = self.library.card(doc).pages_with_tag("dati")
-            if pages:
-                project.set_settings(doc.id, DocumentSettings(pages=format_pages(pages)))
+            self.link_library_pages(project, doc)
         project.save()
         return project
 
-    def example_page_refs(self, docs: list[Document], limit: int) -> list[tuple[str, int]]:
-        """Pagine segnate come "pagina d'esempio" nella biblioteca, al massimo ``limit``."""
-        refs = [(d.id, p) for d in docs for p in self.library.card(d).pages_with_tag("esempio")]
-        return refs[:limit]
+    # --- pagine dalla biblioteca (copiate: fanno parte delle regole) ---------------------------
+    def pages_from_collections(self, doc: Document, ids: list[str]) -> tuple[list[int], list[str]]:
+        """Le pagine delle collezioni indicate e gli id che non esistono più nella scheda."""
+        card = self.library.card(doc)
+        by_id = {c.id: c for c in card.collections}
+        pages = sorted({p for i in ids if i in by_id for p in by_id[i].pages})
+        return pages, [i for i in ids if i not in by_id]
+
+    def link_library_pages(self, project: Project, doc: Document, notes: str = "") -> None:
+        """Pagine di un PDF appena aggiunto al progetto: le sue collezioni "dati", se ce ne sono."""
+        ids = [c.id for c in self.library.card(doc).collections if c.tag == "dati"]
+        pages, _ = self.pages_from_collections(doc, ids)
+        if pages:
+            project.set_settings(doc.id, DocumentSettings(notes=notes, pages=format_pages(pages), collections=ids))
+
+    def library_changes(self, project: Project) -> list[dict]:
+        """Per ogni PDF con le pagine prese dalle collezioni: cosa direbbe oggi la biblioteca.
+
+        ``changed`` è vero se le pagine copiate non coincidono più con quelle delle collezioni
+        scelte (cambiate o eliminate). ``new_data`` elenca le collezioni "dati" non scelte: solo un
+        suggerimento, non rende il PDF diverso.
+        """
+        out = []
+        for doc in self.project_documents(project):
+            settings = project.settings_for(doc.id)
+            if not settings.collections:
+                continue
+            pages, missing = self.pages_from_collections(doc, settings.collections)
+            library_pages = format_pages(pages) if pages else None
+            card = self.library.card(doc)
+            new_data = [{"id": c.id, "start": c.start, "end": c.end, "comment": c.comment}
+                        for c in card.collections if c.tag == "dati" and c.id not in settings.collections]
+            out.append({
+                "doc_id": doc.id, "title": doc.info.title, "pages": settings.pages,
+                "library_pages": library_pages, "missing": len(missing), "new_data": new_data,
+                "changed": library_pages != settings.pages or bool(missing),
+            })
+        return out
+
+    def update_pages_from_library(self, project: Project, doc_ids: list[str]) -> list[str]:
+        """Ricopia le pagine dalle collezioni scelte (quelle eliminate vengono tolte)."""
+        updated = []
+        for change in self.library_changes(project):
+            if change["doc_id"] not in doc_ids or not change["changed"]:
+                continue
+            if not change["library_pages"]:
+                raise LibraryError(f"'{change['title']}': nessuna delle collezioni scelte esiste più nella "
+                                   "biblioteca. Scegli di nuovo le pagine da indicizzare.")
+            settings = project.settings_for(change["doc_id"])
+            doc = self.documents.get(change["doc_id"])
+            _, missing = self.pages_from_collections(doc, settings.collections)
+            project.set_settings(doc.id, settings.model_copy(update={
+                "pages": change["library_pages"],
+                "collections": [i for i in settings.collections if i not in missing],
+            }))
+            updated.append(doc.id)
+        project.save()
+        return updated
+
+    def suggested_context_refs(self, docs: list[Document], limit: int) -> list[tuple[str, int]]:
+        """Pagine da mostrare a Gemini proposte dalla mappa della biblioteca.
+
+        Per ogni PDF: indice (fino a 3 pagine), legenda (fino a 4) e pagine d'esempio (fino a 6),
+        prese a turno dai vari PDF finché non si arriva a ``limit``. Vuoto se la mappa non dice nulla.
+        """
+        per_doc = []
+        for doc in docs:
+            card = self.library.card(doc)
+            pages: list[int] = []
+            for tag, most in (("indice", 3), ("legenda", 4), ("esempio", 6)):
+                pages += [p for p in card.pages_with_tag(tag)[:most] if p not in pages]
+            per_doc.append([(doc.id, p) for p in pages])
+        refs: list[tuple[str, int]] = []
+        while any(per_doc) and len(refs) < limit:
+            for queue in per_doc:
+                if queue and len(refs) < limit:
+                    refs.append(queue.pop(0))
+        return refs
 
     def project_documents(self, project: Project) -> list[Document]:
         docs = []

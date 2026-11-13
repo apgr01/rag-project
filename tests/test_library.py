@@ -158,7 +158,7 @@ def test_api_library(client, app, pdf_factory):
     # progetto dalla selezione: pagine da indicizzare, pagine d'esempio e campi passano al progetto
     project = client.post("/api/library/projects", json={"name": "Motori", "ids": ["alfa", "beta"]}).json()
     stored = yaml.safe_load((app.projects.get(project["id"]).folder / "project.yaml").read_text(encoding="utf-8"))
-    assert stored["settings"] == {"alfa": {"notes": "", "pages": "3-11"}}
+    assert stored["settings"]["alfa"]["pages"] == "3-11" and len(stored["settings"]["alfa"]["collections"]) == 1
     setup = client.get(f"/api/projects/{project['id']}/setup").json()
     assert setup["suggested_pages"] == [["alfa", 4], ["alfa", 5]]
     assert setup["table"] is False

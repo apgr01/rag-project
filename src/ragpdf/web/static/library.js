@@ -521,9 +521,10 @@ async function renderCatalog(id) {
     t.classList.add("current");
     if (scroll) t.scrollIntoView({ block: "nearest" });
   };
-  const select = (a, b) => {
+  // writeInputs=false quando l'utente sta scrivendo nei campi: non si riscrive ciò che digita
+  const select = (a, b, writeInputs = true) => {
     selStart = Math.min(a, b); selEnd = Math.max(a, b);
-    $("#c-start").value = selStart; $("#c-end").value = selEnd;
+    if (writeInputs) { $("#c-start").value = selStart; $("#c-end").value = selEnd; }
     $$(".thumb", thumbs).forEach(t => t.classList.toggle("selected", +t.dataset.p >= selStart && +t.dataset.p <= selEnd));
     $("#c-help").textContent = `${selEnd - selStart + 1} pagin${selStart === selEnd ? "a" : "e"} selezionat${selStart === selEnd ? "a" : "e"}.`;
   };
@@ -575,7 +576,7 @@ async function renderCatalog(id) {
   $("#v-page").addEventListener("change", e => { const p = parseInt(e.target.value, 10); if (p) { show(p); anchor = current; select(current, current); } });
   const rangeInput = () => {
     const a = parseInt($("#c-start").value, 10), b = parseInt($("#c-end").value, 10);
-    if (a >= 1 && b >= 1 && a <= total && b <= total) select(a, b);
+    if (a >= 1 && b >= 1 && a <= total && b <= total) select(a, b, false);
   };
   $("#c-start").addEventListener("change", rangeInput);
   $("#c-end").addEventListener("change", rangeInput);

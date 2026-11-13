@@ -136,7 +136,15 @@ progetto ── documenti: alfa, beta, gamma
   entrano direttamente nelle regole (l'impronta resta quella di primer e specifica): cambiarle
   non rende vecchi i risultati, ma segnala che la specifica va riallineata.
 - **Schede della biblioteca nel prompt della configurazione**: descrizione, dati presenti e
-  collezioni di ciascun PDF, lette in diretta (sono descrittive).
+  collezioni di ciascun PDF, lette in diretta (sono descrittive). Le pagine proposte da
+  mostrare a Gemini vengono dalla mappa (`App.suggested_context_refs`: indice, legenda, esempi,
+  a turno tra i PDF).
+- **Pagine da indicizzare dalle collezioni** (`DocumentSettings.collections` + `pages`): le pagine
+  sono una **copia** delle collezioni scelte, perché fanno parte delle regole. Regola generale:
+  *ciò che descrive si legge in diretta, ciò che comanda si copia*. `App.library_changes`
+  confronta la copia con la biblioteca di oggi (collezioni cambiate o eliminate) e
+  `update_pages_from_library` ricopia su richiesta; i PDF già indicizzati diventano vecchi per
+  l'impronta e si rifanno solo loro.
 
 - **Note per PDF**: le differenze di un catalogo si esprimono come istruzioni aggiuntive solo
   per lui, invece di complicare le regole comuni. Le colonne non cambiano, così il CSV resta

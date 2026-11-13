@@ -189,6 +189,9 @@ a.linkbtn.small { padding: .2rem .55rem; font-size: .85rem; }
 .collect { margin-top: .75rem; padding: .6rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
 .pick-list { max-height: 50vh; overflow: auto; margin-top: .5rem; }
 
+/* pagine del PDF scelte dalle collezioni */
+.coll-pick { max-height: 14rem; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: .35rem .6rem; }
+
 /* impostazioni del progetto */
 .col-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto auto auto; gap: .35rem;
            margin-bottom: .35rem; align-items: center; }

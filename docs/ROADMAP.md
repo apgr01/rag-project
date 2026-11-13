@@ -82,7 +82,7 @@ Decisi insieme e da rispettare in tutti gli step:
 - [x] **Impostazioni globali del progetto** (descrizione, riga, colonne vincolanti con
   copertura); PDF del progetto che rimandano alla scheda; configurazione guidata che usa
   impostazioni e schede.
-- [ ] **Pagine per PDF scelte dalle collezioni** e *Aggiorna dalla biblioteca* (regola: ciò che
+- [x] **Pagine per PDF scelte dalle collezioni** e *Aggiorna dalla biblioteca* (regola: ciò che
   descrive si legge in diretta, ciò che comanda si copia).
 - [ ] **Progetto guidato** dalla scheda del PDF, al posto del raggruppamento in biblioteca.
 - [ ] **Ritorno nella scheda**: progetti in cui il PDF è usato e stato dell'indicizzazione.

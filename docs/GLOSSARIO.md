@@ -174,10 +174,10 @@ globali hanno la tabella, diventa *altre indicazioni per questa configurazione*.
 I PDF che il progetto usa, ciascuno con le sue **impostazioni per PDF**. Il nome porta alla sua
 **scheda della biblioteca**, e nel progetto se ne vedono descrizione e dati presenti.
 
-**Impostazioni per PDF (nel progetto)** ✅ 🔜
+**Impostazioni per PDF (nel progetto)** ✅
 Valgono solo dentro quel progetto:
-- **pagine da indicizzare** di quel PDF: si sceglieranno **spuntando le sue collezioni** 🔜
-  (di default quelle *dati*);
+- **pagine da indicizzare** di quel PDF: si scelgono **spuntando le sue collezioni** (di
+  default quelle *dati*) e vengono **copiate**; oppure si scrivono a mano;
 - **note per il PDF**: istruzioni di estrazione in più, solo per lui (es. "in questo catalogo
   la versione è sotto il nome del motore"). Possono essere proposte da Gemini in
   configurazione.
@@ -214,7 +214,7 @@ Il processo, a **versioni** successive, in cui Gemini scrive primer e specifica:
 
 Gemini riceve anche le **schede** dei PDF (descrizione, mappa delle pagine, dati presenti) e
 la tabella delle impostazioni globali come vincolo; ogni versione della specifica viene
-confrontata con le colonne del progetto. 🔜 Le pagine mostrate saranno proposte dalla mappa
+confrontata con le colonne del progetto. Le pagine mostrate sono proposte dalla mappa
 (indice, legenda, esempi).
 
 **Estratto PDF** ✅
@@ -243,7 +243,7 @@ indicizzazione.
 
 ---
 
-## 5. Dalla biblioteca al progetto 🔜
+## 5. Dalla biblioteca al progetto ✅
 
 Regola: **ciò che descrive si legge in diretta, ciò che comanda si copia.**
 

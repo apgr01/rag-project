@@ -183,7 +183,10 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         }
         card = app.library.card(doc)
         info["library"] = {"description": card.description, "data": [f.name for f in card.fields],
-                           "collections": len(card.collections), "folder": card.folder, "tags": card.tags}
+                           "collections": [{"id": c.id, "start": c.start, "end": c.end, "tag": c.tag,
+                                            "label": PAGE_TAGS[c.tag][0], "comment": c.comment}
+                                           for c in card.collections],
+                           "folder": card.folder, "tags": card.tags}
         if project.info.spec:
             manifest_path = doc.extraction_dir(project.info.spec) / "manifest.json"
             if manifest_path.exists():
@@ -209,6 +212,7 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         return {
             **project.info.model_dump(exclude={"settings"}),
             "has_table": project.info.has_table,
+            "library_changes": [c for c in app.library_changes(project) if c["changed"]],
             "columns_check": spec_columns_check(project),
             "documents": statuses,
             "page_count": sum(d.info.page_count for d in docs),
@@ -312,12 +316,32 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
     def document_settings(pid: str, doc_id: str, body: dict = Body(...)):
         project = project_or_404(pid)
         doc = doc_of(project, doc_id)
-        pages = str(body.get("pages") or "").strip() or None
-        if pages:
-            parse_page_ranges(pages, doc.info.page_count)  # errore leggibile se non valide
-        project.set_settings(doc.id, DocumentSettings(notes=str(body.get("notes") or ""), pages=pages))
+        collections = [str(c) for c in body.get("collections") or []]
+        if collections:
+            # pagine dalle collezioni della biblioteca: le calcola il programma (copia)
+            found, missing = app.pages_from_collections(doc, collections)
+            if missing:
+                raise ValueError("Alcune collezioni non esistono più nella biblioteca: ricarica la pagina.")
+            pages = format_pages(found)
+        else:
+            pages = str(body.get("pages") or "").strip() or None
+            if pages:
+                parse_page_ranges(pages, doc.info.page_count)  # errore leggibile se non valide
+        project.set_settings(doc.id, DocumentSettings(notes=str(body.get("notes") or ""), pages=pages,
+                                                      collections=collections))
         project.save()
         return doc_status(project, doc)
+
+    @api.get("/api/projects/{pid}/library-changes")
+    def library_changes(pid: str):
+        return app.library_changes(project_or_404(pid))
+
+    @api.post("/api/projects/{pid}/library-update")
+    def library_update_pages(pid: str, body: dict = Body(...)):
+        project = project_or_404(pid)
+        no_job(project)
+        updated = app.update_pages_from_library(project, [str(d) for d in body.get("docs") or []])
+        return {"updated": updated, "project": project_summary(app.projects.get(project.id))}
 
     # ------------------------------------------------------------------ biblioteca
     def upload_to_temp(file: UploadFile, tmp: str) -> Path:
@@ -662,10 +686,8 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         for doc in docs_from_body(body):
             if doc.id not in project.info.documents:
                 app.projects.add_document(project, doc.id)
-                pages = app.library.card(doc).pages_with_tag("dati")
-                if pages:
-                    project.set_settings(doc.id, DocumentSettings(pages=format_pages(pages)))
-                    project.save()
+                app.link_library_pages(project, doc)
+                project.save()
                 added.append(doc.id)
         return {"added": added}
 
@@ -802,8 +824,8 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         project = project_or_404(pid)
         session = SetupSession.load(app, project)
         docs = app.project_documents(project)
-        # le pagine d'esempio e i campi segnati nella biblioteca hanno la precedenza
-        examples = app.example_page_refs(docs, MAX_SELECTED_PAGES)
+        # le pagine segnate nella biblioteca (indice, legenda, esempi) hanno la precedenza
+        examples = app.suggested_context_refs(docs, MAX_SELECTED_PAGES)
         return {
             "session": session_view(session) if session else None,
             "suggested_pages": [list(r) for r in (examples or default_context_refs(docs))],
