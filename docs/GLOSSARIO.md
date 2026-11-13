@@ -16,7 +16,7 @@ preciso di ciascuna. Serve a non confondere cose che si somigliano (tag, note, p
 ```
                  BIBLIOTECA                                   PROGETTO (= una tabella)
    ┌──────────────────────────────────────┐        ┌──────────────────────────────────────────┐
-   │ catalogo (PDF) ── scheda              │        │ impostazioni globali 🔜                  │
+   │ catalogo (PDF) ── scheda              │        │ impostazioni globali                     │
    │   descrizione, tag, dati presenti,    │        │   descrizione, riga, colonne             │
    │   collezioni di pagine                │        │ PDF del progetto (rimandano alla scheda) │
    │                                       │        │   + pagine e note proprie del progetto   │
@@ -145,7 +145,7 @@ che producono **un CSV unico**. È il coordinatore finale: solo lui ha la strutt
 del CSV. Lo stesso PDF può stare in più progetti (per esempio uno "per motore" e uno "per
 componente"): i risultati restano separati.
 
-**Impostazioni globali del progetto** 🔜
+**Impostazioni globali del progetto** ✅
 Cosa deve uscire dal progetto: **descrizione**, **cosa è una riga**, **colonne** (nome +
 descrizione), **altre indicazioni**. Le scrivi tu (progetto a mano) o arrivano dal progetto
 guidato. Sono la fonte autorevole: la specifica deve usare **esattamente** queste colonne, e il
@@ -166,13 +166,13 @@ Un dato valido per tutta la pagina (es. il nome del motore nell'intestazione) ch
 ogni riga anche se non è ripetuto. Con il **contesto ereditato** passa anche alle pagine
 successive dello stesso PDF che non lo riportano.
 
-**Obiettivo** ✅ 🔜
-Oggi: la casella "Cosa vuoi ottenere" della configurazione guidata, a parole. Con le
-impostazioni globali resta solo per le *altre indicazioni*.
+**Obiettivo** ✅
+La casella "Cosa vuoi ottenere" della configurazione guidata, a parole. Se le impostazioni
+globali hanno la tabella, diventa *altre indicazioni per questa configurazione*.
 
-**PDF del progetto** ✅ 🔜
-I PDF che il progetto usa, ciascuno con le sue **impostazioni per PDF**. Aprendo un PDF dal
-progetto si vedrà la sua **scheda della biblioteca** 🔜.
+**PDF del progetto** ✅
+I PDF che il progetto usa, ciascuno con le sue **impostazioni per PDF**. Il nome porta alla sua
+**scheda della biblioteca**, e nel progetto se ne vedono descrizione e dati presenti.
 
 **Impostazioni per PDF (nel progetto)** ✅ 🔜
 Valgono solo dentro quel progetto:
@@ -204,15 +204,18 @@ pagine di quel PDF, modello di Gemini, modo di input.
 Un riassunto delle regole salvato insieme ai risultati. Se le regole cambiano, i risultati di
 quel PDF sono **vecchi** e vanno rifatti: il programma rifà **solo** i PDF interessati.
 
-**Configurazione guidata** ✅ 🔜
+**Configurazione guidata** ✅
 Il processo, a **versioni** successive, in cui Gemini scrive primer e specifica:
-1. scegli le *pagine mostrate a Gemini* e l'obiettivo (🔜: le impostazioni globali);
+1. scegli le *pagine mostrate a Gemini* e l'obiettivo (o le altre indicazioni, se la tabella è
+   già nelle impostazioni globali);
 2. Gemini propone primer, specifica, note per i PDF e fa una *prova*;
 3. tu correggi **a parole**, e Gemini produce una nuova versione;
 4. *Salva configurazione* quando il risultato ti convince.
 
-🔜 Gemini riceverà anche le **schede** dei PDF (descrizione, mappa delle pagine, dati presenti)
-e le pagine mostrate saranno proposte dalla mappa (indice, legenda, esempi).
+Gemini riceve anche le **schede** dei PDF (descrizione, mappa delle pagine, dati presenti) e
+la tabella delle impostazioni globali come vincolo; ogni versione della specifica viene
+confrontata con le colonne del progetto. 🔜 Le pagine mostrate saranno proposte dalla mappa
+(indice, legenda, esempi).
 
 **Estratto PDF** ✅
 Un PDF temporaneo con le sole pagine scelte, mandato a Gemini al posto dell'originale. Nel
@@ -275,7 +278,7 @@ PDF andrebbero rifatti. Il progetto **non scrive** nella biblioteca.
 | descrizione | scheda del catalogo | descrive il PDF | no |
 | commento | collezione di pagine | descrive quelle pagine | no |
 | osservazioni | analisi (Gemini) | dubbi e note di Gemini | no |
-| descrizione del progetto 🔜 | impostazioni globali | descrive la tabella | no (contesto) |
+| descrizione del progetto | impostazioni globali | descrive la tabella | no (contesto) |
 | note per il PDF | progetto | comanda l'estrazione di quel PDF | **sì** |
 | istruzioni | specifica | comandano l'estrazione di tutti i PDF | **sì** |
 | indicazioni | prompt di analisi / progetto guidato | dicono a Gemini cosa cercare | no |
@@ -297,7 +300,7 @@ PDF andrebbero rifatti. Il progetto **non scrive** nella biblioteca.
 |---|---|---|
 | dati presenti | scheda del catalogo | no: inventario, serve a capire e a proporre progetti |
 | colonne della tabella richiesta 🔜 | progetto guidato | no: diventano le colonne del progetto |
-| colonne del progetto 🔜 | impostazioni globali | sì, tramite la specifica che deve rispettarle |
+| colonne del progetto | impostazioni globali | sì, tramite la specifica che deve rispettarle |
 | colonne della specifica | specifica | **sì**, sono quelle usate davvero |
 
 **Le "proposte" di Gemini** — niente viene applicato da solo:

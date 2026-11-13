@@ -52,9 +52,53 @@ class ProjectInfo(BaseModel):
     primer: str | None = None
     spec: str | None = None
     settings: dict[str, DocumentSettings] = Field(default_factory=dict)
-    # colonne proposte (es. dal raggruppamento della biblioteca): {"name": ..., "description": ...}
-    fields: list[dict[str, str]] = Field(default_factory=list)
+    # impostazioni globali: la tabella che il progetto deve produrre (decisa dall'utente)
+    description: str = ""
+    row: str = ""                                                   # cosa rappresenta una riga
+    fields: list[dict[str, str]] = Field(default_factory=list)      # colonne: {"name", "description"}
+    instructions: str = ""                                          # altre indicazioni
     created_at: str = Field(default_factory=utc_now)
+
+    @property
+    def has_table(self) -> bool:
+        """True se l'utente ha definito la tabella (riga o colonne) nelle impostazioni globali."""
+        return bool(self.row.strip() or self.fields)
+
+    @property
+    def column_names(self) -> list[str]:
+        return [f.get("name", "") for f in self.fields if f.get("name", "").strip()]
+
+
+def _norm(name: str) -> str:
+    return " ".join(name.split()).casefold()
+
+
+def compare_columns(expected: list[str], actual: list[str]) -> dict:
+    """Confronta le colonne richieste dal progetto con quelle di una specifica.
+
+    Nomi confrontati senza badare a maiuscole e spazi; ``ok`` solo se coincidono anche
+    nell'ordine.
+    """
+    exp, act = [_norm(x) for x in expected], [_norm(x) for x in actual]
+    missing = [x for x, n in zip(expected, exp, strict=True) if n not in act]
+    extra = [x for x, n in zip(actual, act, strict=True) if n not in exp]
+    order_ok = [n for n in act if n in exp] == [n for n in exp if n in act]
+    return {"ok": not missing and not extra and order_ok, "missing": missing, "extra": extra,
+            "order_ok": order_ok}
+
+
+def clean_columns(columns: list[dict]) -> list[dict[str, str]]:
+    """Colonne pulite: nome obbligatorio e unico (maiuscole e spazi non contano)."""
+    out, seen = [], set()
+    for c in columns or []:
+        name = " ".join(str((c or {}).get("name", "")).split())
+        if not name:
+            continue
+        if _norm(name) in seen:
+            raise ProjectError(f"La colonna '{name}' compare due volte.")
+        seen.add(_norm(name))
+        out.append({"name": name, "description": " ".join(str(c.get("description", "")).split())})
+    return out
 
 
 class ProjectError(Exception):

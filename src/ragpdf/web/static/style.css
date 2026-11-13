@@ -48,7 +48,8 @@ main { max-width: 1280px; margin: 0 auto; padding: 16px; }
 .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
          padding: 16px; margin-bottom: 16px; }
 .grid2 { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 16px; }
-@media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+.grid2.wide-left { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+@media (max-width: 900px) { .grid2, .grid2.wide-left { grid-template-columns: 1fr; } }
 .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
 .spacer { flex: 1; }
 
@@ -187,6 +188,11 @@ a.linkbtn.small { padding: .2rem .55rem; font-size: .85rem; }
               border-radius: 6px; background: #fff; }
 .collect { margin-top: .75rem; padding: .6rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
 .pick-list { max-height: 50vh; overflow: auto; margin-top: .5rem; }
+
+/* impostazioni del progetto */
+.col-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto auto auto; gap: .35rem;
+           margin-bottom: .35rem; align-items: center; }
+@media (max-width: 600px) { .col-row { grid-template-columns: 1fr auto auto auto; } .col-row [data-cdesc] { grid-column: 1 / -1; grid-row: 2; } }
 
 /* analisi con Gemini */
 .proposal { border-color: #9b72cb; box-shadow: 0 0 0 1px #9b72cb33; }

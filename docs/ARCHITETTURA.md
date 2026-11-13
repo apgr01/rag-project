@@ -122,10 +122,21 @@ specifica comuni, un CSV unico.
 
 ```
 progetto ── documenti: alfa, beta, gamma
+         ├── impostazioni globali: descrizione, riga, colonne, altre indicazioni (decise dall'utente)
          ├── primer + specifica  (comuni: stesse colonne per tutti)
          ├── impostazioni per PDF: note, pagine   ── IndexingSpec.for_document()
          └── export: CSV unico + CSV per PDF + anomalie con il file + ricerca.html
 ```
+
+- **Impostazioni globali** (`ProjectInfo.description/row/fields/instructions`): la tabella che il
+  progetto deve produrre. La configurazione guidata le mette nel prompt come vincolo e le
+  colonne della specifica vengono confrontate con quelle decise (`compare_columns`: nomi senza
+  badare a maiuscole e spazi, ordine compreso). Il confronto compare nel giro della
+  configurazione e, per la specifica salvata, nel riepilogo del progetto. Le impostazioni non
+  entrano direttamente nelle regole (l'impronta resta quella di primer e specifica): cambiarle
+  non rende vecchi i risultati, ma segnala che la specifica va riallineata.
+- **Schede della biblioteca nel prompt della configurazione**: descrizione, dati presenti e
+  collezioni di ciascun PDF, lette in diretta (sono descrittive).
 
 - **Note per PDF**: le differenze di un catalogo si esprimono come istruzioni aggiuntive solo
   per lui, invece di complicare le regole comuni. Le colonne non cambiano, così il CSV resta

@@ -79,7 +79,7 @@ Decisi insieme e da rispettare in tutti gli step:
   stesse istruzioni), con proposte da rivedere una per una.
 - [x] **Dati presenti e tag *dati***: i campi della scheda diventano un inventario senza ordine;
   il tag di pagina *da indicizzare* diventa *dati*.
-- [ ] **Impostazioni globali del progetto** (descrizione, riga, colonne vincolanti con
+- [x] **Impostazioni globali del progetto** (descrizione, riga, colonne vincolanti con
   copertura); PDF del progetto che rimandano alla scheda; configurazione guidata che usa
   impostazioni e schede.
 - [ ] **Pagine per PDF scelte dalle collezioni** e *Aggiorna dalla biblioteca* (regola: ciò che

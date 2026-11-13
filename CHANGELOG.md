@@ -15,6 +15,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   rapida o PDF intero; istruzioni modificabili con predefinito personale; proposta di
   descrizione, tag, campi e collezioni (anche dedotte dall'indice) da rivedere e applicare in
   parte; archivio delle analisi; richieste troppo pesanti riconosciute e spiegate.
+- **Impostazioni globali del progetto** (scheda *Impostazioni*): descrizione, cosa è una riga,
+  colonne nell'ordine del CSV con la copertura nei PDF (dai dati presenti), altre indicazioni.
+  Le colonne sono vincolanti: la configurazione guidata le passa a Gemini e confronta ogni
+  versione della specifica, con avviso, correzione proposta e conferma al salvataggio.
+- La configurazione guidata riceve le **schede della biblioteca** dei PDF; nei *Documenti* del
+  progetto ogni PDF rimanda alla sua scheda e ne mostra descrizione e dati presenti.
 - **Raggruppamento proposto da Gemini**: dai cataloghi selezionati nella biblioteca, una sola
   richiesta con le loro schede (e, a scelta, una pagina d'esempio ciascuno); report con gruppi
   (nome, commento, tag comuni, colonne unificate) e non accorpabili, cataloghi spostabili tra

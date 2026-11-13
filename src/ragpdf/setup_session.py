@@ -34,6 +34,7 @@ import yaml
 from ragpdf.app import App
 from ragpdf.core.documents import Document
 from ragpdf.core.fileio import atomic_write_text, read_json, utc_now, write_json
+from ragpdf.core.library import PAGE_TAGS
 from ragpdf.core.page_runner import RunControl, RunReport
 from ragpdf.core.paths import EXAMPLES_DIR
 from ragpdf.core.pdf_tools import build_multi_subset_pdf, labeled_mapping_text, page_mapping_text
@@ -48,6 +49,7 @@ from ragpdf.primer import MAX_SELECTED_PAGES, clean_markdown, sample_pages
 
 PageRef = tuple[str, int]          # (id del documento, pagina)
 
+CARD_DESCRIPTION_MAX_CHARS = 1500    # descrizione della scheda nel prompt
 MAX_PREVIEW_PAGES = 6
 MAX_PREVIEW_PAGES_LIMIT = 12       # con molti PDF serve almeno una pagina per ciascuno
 MAX_PREVIEW_ROWS_IN_PROMPT = 60
@@ -372,16 +374,45 @@ class SetupSession:
 
     def _documents_block(self) -> str:
         docs = self.documents
-        if len(docs) <= 1:
+        parts = []
+        if len(docs) > 1:
+            lines = [f"- [{d.id}] {d.info.title} ({d.info.page_count} pagine)" for d in docs]
+            parts.append(
+                "\n## DOCUMENTI DEL PROGETTO\nTutti i documenti condividono primer e specifica (stesse colonne). "
+                "Se un documento si discosta dagli altri (layout, sigle, posizione dei dati, pagine da "
+                "ignorare), scrivi le istruzioni particolari in \"document_notes\" per quel documento, "
+                "indicandolo con l'id tra parentesi quadre, invece di complicare le regole comuni:\n"
+                + "\n".join(lines) + "\n"
+            )
+        cards = [c for c in (self._card_text(d) for d in docs) if c]
+        if cards:
+            title = "SCHEDE DEI DOCUMENTI" if len(docs) > 1 else "SCHEDA DEL DOCUMENTO"
+            parts.append(
+                f"\n## {title} (dalla biblioteca)\nCiò che l'utente sa già dei PDF: usalo per il primer "
+                "(struttura, sezioni, convenzioni) e per le note dei singoli documenti. I numeri di pagina "
+                "sono quelli dei documenti originali.\n\n" + "\n\n".join(cards) + "\n"
+            )
+        return "".join(parts)
+
+    def _card_text(self, doc: Document) -> str:
+        """La scheda della biblioteca di un documento, per il prompt (vuota se non c'è niente)."""
+        card = self.app.library.card(doc)
+        lines = []
+        description = card.description.strip()
+        if description:
+            if len(description) > CARD_DESCRIPTION_MAX_CHARS:
+                description = description[:CARD_DESCRIPTION_MAX_CHARS].rstrip() + " [...]"
+            lines.append(f"- Descrizione: {description}")
+        if card.fields:
+            lines.append("- Dati presenti: " + "; ".join(
+                f.name + (f" ({f.description})" if f.description else "") for f in card.fields))
+        for c in card.collections:
+            pages = f"pagina {c.start}" if c.start == c.end else f"pagine {c.start}-{c.end}"
+            label = PAGE_TAGS[c.tag][0]
+            lines.append(f"- {pages}: {label}" + (f" — {c.comment}" if c.comment else ""))
+        if not lines:
             return ""
-        lines = [f"- [{d.id}] {d.info.title} ({d.info.page_count} pagine)" for d in docs]
-        return (
-            "\n## DOCUMENTI DEL PROGETTO\nTutti i documenti condividono primer e specifica (stesse colonne). "
-            "Se un documento si discosta dagli altri (layout, sigle, posizione dei dati, pagine da "
-            "ignorare), scrivi le istruzioni particolari in \"document_notes\" per quel documento, "
-            "indicandolo con l'id tra parentesi quadre, invece di complicare le regole comuni:\n"
-            + "\n".join(lines) + "\n"
-        )
+        return f"### [{doc.id}] {doc.info.title} ({doc.info.page_count} pagine)\n" + "\n".join(lines)
 
     def _notes_block(self) -> str:
         notes = self.document_notes()
@@ -391,11 +422,34 @@ class SetupSession:
         return "\n".join(f"- [{d}] {titles.get(d, d)}: {n}" for d, n in notes.items())
 
     def _goal_text(self) -> str:
-        return self.state.goal or (
+        table = self._table_text()
+        goal = self.state.goal.strip()
+        if table:
+            return table + (f"\n\nAltre indicazioni per questa configurazione:\n{goal}" if goal else "")
+        return goal or (
             "L'utente non ha indicato cosa vuole ottenere: proponi tu l'indicizzazione più utile "
             "per questo documento (ad esempio, per un catalogo di ricambi, una riga per ogni codice "
             "articolo con i dati che permettono di cercarlo)."
         )
+
+    def _table_text(self) -> str:
+        """La tabella decisa dall'utente nelle impostazioni globali del progetto (vincolante)."""
+        info = self.project.info
+        if not info.has_table:
+            return ""
+        lines = ["La tabella che l'utente vuole è già decisa (impostazioni del progetto):"]
+        if info.description.strip():
+            lines.append(f"- Descrizione: {info.description.strip()}")
+        if info.row.strip():
+            lines.append(f"- Ogni riga rappresenta: {info.row.strip()} (usalo per `row`)")
+        if info.fields:
+            lines.append("- Colonne OBBLIGATORIE: in `columns` usa ESATTAMENTE questi nomi, in quest'ordine, "
+                         "senza aggiungerne né toglierne; completa tu descrizione e dettagli tecnici di ciascuna:")
+            lines += [f"  {i}. {f.get('name', '')}" + (f": {f['description']}" if f.get("description") else "")
+                      for i, f in enumerate(info.fields, 1)]
+        if info.instructions.strip():
+            lines.append(f"- Altre indicazioni: {info.instructions.strip()}")
+        return "\n".join(lines)
 
     def _preview_block(self) -> str:
         preview = self.round_notes().get("preview")

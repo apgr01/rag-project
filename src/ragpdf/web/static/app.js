@@ -426,7 +426,8 @@ async function renderHome() {
 // ------------------------------------------------------------------ PROGETTO
 async function renderProject(pid, tab) {
   const project = await api("GET", `/api/projects/${enc(pid)}`);
-  const tabs = [["docs", "Documenti"], ["setup", "1 · Configurazione"], ["index", "2 · Indicizzazione"], ["results", "3 · Risultati"]];
+  const tabs = [["docs", "Documenti"], ["settings", "Impostazioni"], ["setup", "1 · Configurazione"],
+                ["index", "2 · Indicizzazione"], ["results", "3 · Risultati"]];
   view.innerHTML = `
     <p class="small"><a href="#/">&larr; Progetti</a></p>
     <h1>${esc(project.name)}</h1>
@@ -453,13 +454,14 @@ async function renderProject(pid, tab) {
     }, { finale: job.kind === "index" });
     return;
   }
-  if (!project.documents.length && tab !== "docs") {
+  if (!project.documents.length && !["docs", "settings"].includes(tab)) {
     ctx.box.innerHTML = `<div class="panel note">Il progetto non contiene PDF: <a href="#/p/${enc(pid)}/docs">aggiungili</a>.</div>`;
     return;
   }
   if (tab === "setup") await renderSetup(ctx);
   else if (tab === "index") await renderIndex(ctx);
   else if (tab === "results") await renderResults(ctx);
+  else if (tab === "settings") await renderSettings(ctx);
   else renderDocs(ctx);
 }
 
@@ -484,8 +486,11 @@ function renderDocs(ctx) {
         <div class="panel" style="margin-bottom:8px">
           <div class="row">
             <img src="/api/documents/${enc(d.id)}/thumb/1" alt="" style="width:46px;border:1px solid var(--border);border-radius:4px" data-doc="${esc(d.id)}" data-page="1">
-            <div><strong>${esc(d.title)}</strong><br><span class="small muted">${esc(d.source_filename)} · ${d.page_count} pagine
-              ${project.spec ? ` · indicizzate ${d.done}/${d.page_count}` : ""}${d.failed ? ` · <span class="badge error">${d.failed} fallite</span>` : ""}</span></div>
+            <div style="flex:1;min-width:14rem"><a href="#/biblioteca/c/${enc(d.id)}" title="Apri la scheda nella biblioteca"><strong>${esc(d.title)}</strong></a>
+              <br><span class="small muted">${esc(d.source_filename)} · ${d.page_count} pagine
+              ${project.spec ? ` · indicizzate ${d.done}/${d.page_count}` : ""}${d.failed ? ` · <span class="badge error">${d.failed} fallite</span>` : ""}</span>
+              ${d.library && d.library.description ? `<br><span class="small">${esc(d.library.description.length > 180 ? d.library.description.slice(0, 180) + "…" : d.library.description)}</span>` : ""}
+              ${d.library && d.library.data.length ? `<br><span class="small muted">Dati presenti:</span> ${tagBadges(d.library.data)}` : ""}</div>
             <span class="spacer"></span>
             ${d.settings.notes ? '<span class="badge">note</span>' : ""}${d.settings.pages ? `<span class="badge">pagine ${esc(d.settings.pages)}</span>` : ""}
             <button class="secondary" data-edit="${esc(d.id)}" type="button">Note e pagine</button>
@@ -607,9 +612,17 @@ async function renderSetupForm(ctx, data) {
       <div class="thumbs" id="thumbs"></div>
     </div>
     <div class="panel" id="goal-panel">
+      ${project.has_table ? `
+      <h3>La tabella del progetto</h3>
+      <p class="hint">Decisa nelle <a href="#/p/${enc(pid)}/settings">Impostazioni</a>: Gemini dovrà usare esattamente queste colonne.</p>
+      ${project.row ? `<p><strong>Una riga =</strong> ${esc(project.row)}</p>` : ""}
+      ${project.fields.length ? `<p class="small">${project.fields.map((f, i) => `${i + 1}. <strong>${esc(f.name)}</strong>${f.description ? ` — ${esc(f.description)}` : ""}`).join("<br>")}</p>` : ""}
+      <label for="goal">Altre indicazioni per questa configurazione <span class="muted small">(facoltative)</span></label>`
+      : `
       <h3>Cosa vuoi ottenere</h3>
       <p class="hint">Descrivi il CSV a parole: cosa è una riga, quali colonne, regole particolari.
-        Puoi lasciarlo vuoto: Gemini proporrà l'indicizzazione più utile.</p>
+        Puoi lasciarlo vuoto: Gemini proporrà l'indicizzazione più utile. Per decidere tu le colonne usa le
+        <a href="#/p/${enc(pid)}/settings">Impostazioni</a> del progetto.</p>`}
       <textarea id="goal" rows="5" placeholder="Es. Una riga per ogni coppia codice FIN / codice OEM di ogni motore, con costruttore, motore, cilindri, alesaggio, corsa e versione dall'intestazione. Se manca il codice OEM lascia vuoto."></textarea>
       <label>CSV di riferimento <span class="muted small">(facoltativo)</span></label>
       <p class="hint">Un indice già fatto: Gemini ne copia colonne e stile. Se contiene righe di questi PDF
@@ -663,7 +676,7 @@ async function renderSetupForm(ctx, data) {
   drawThumbs();
 
   const goal = $("#goal");
-  goal.value = drafts.get(goalKey) || (session ? session.state.goal : data.suggested_goal || "");
+  goal.value = drafts.get(goalKey) || (session ? session.state.goal : "");
   goal.addEventListener("input", () => drafts.set(goalKey, goal.value));
 
   $("#reference").addEventListener("change", async e => {
@@ -771,6 +784,8 @@ function renderSetupRound(ctx, session) {
                 ${c.required ? ' <span class="badge">obbligatoria</span>' : ""}
                 ${c.context ? ' <span class="badge">intestazione</span>' : ""}</td><td>${esc(c.description)}</td></tr>`).join("")}
             </tbody></table></div>` : `<div class="note error">Specifica non valida: ${esc(spec.error)}</div>`}
+          ${r.columns_check && !r.columns_check.ok ? `${columnsCheckNote(r.columns_check, "Questa versione della specifica")}
+            <div class="row"><button class="secondary small" id="fix-columns" type="button">Chiedi a Gemini di correggerle</button></div>` : ""}
           ${multi && Object.keys(r.document_notes).length ? `<div class="note"><strong>Note per singoli PDF</strong><ul>
             ${Object.entries(r.document_notes).map(([d, n]) => `<li><strong>${esc(ctx.titles[d] || d)}</strong>: ${esc(n)}</li>`).join("")}</ul></div>` : ""}
         </div>
@@ -895,7 +910,22 @@ function renderSetupRound(ctx, session) {
   }
 
   $("#new-setup").addEventListener("click", () => renderSetup(ctx, { forceForm: true }));
-  $("#save").addEventListener("click", e => saveSetup(ctx, session, e.target));
+  $("#save").addEventListener("click", async e => {
+    if (r.columns_check && !r.columns_check.ok) {
+      const ok = await confirmDialog({ title: "Le colonne non coincidono", ok: "Salva comunque", danger: true,
+        html: `${columnsCheckNote(r.columns_check, "Questa versione della specifica")}
+               <p>Puoi chiedere a Gemini di correggerle, oppure cambiare le colonne nelle Impostazioni del progetto.</p>` });
+      if (!ok) return;
+    }
+    saveSetup(ctx, session, e.target);
+  });
+  if ($("#fix-columns")) $("#fix-columns").addEventListener("click", () => {
+    const fb = $("#feedback");
+    fb.value = `Usa esattamente le colonne del progetto, con questi nomi e in quest'ordine, senza aggiungerne né toglierne: ${project.fields.map(f => f.name).join(", ")}.`
+      + (fb.value.trim() ? `\n\n${fb.value.trim()}` : "");
+    fb.dispatchEvent(new Event("input"));
+    fb.focus();
+  });
 }
 
 function renderPreview(p, spec, ctx) {
@@ -967,6 +997,7 @@ async function renderIndex(ctx) {
   }
   const changed = plan.spec_changed;
   box.innerHTML = `
+    ${columnsCheckNote(ctx.project.columns_check, "La specifica salvata")}
     <div class="panel">
       <h3>Indicizzazione di tutti i PDF</h3>
       <p>Specifica <code>${esc(plan.spec)}</code> · primer <code>${esc(plan.primer || "nessuno")}</code></p>

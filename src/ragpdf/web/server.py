@@ -35,7 +35,7 @@ from ragpdf.core.library import PAGE_TAGS, FieldDef, LibraryCard
 from ragpdf.core.manifest import DONE, Manifest
 from ragpdf.core.page_runner import RunControl
 from ragpdf.core.pdf_tools import has_text_layer, render_thumbnail
-from ragpdf.core.projects import DocumentSettings, Project, ProjectError
+from ragpdf.core.projects import DocumentSettings, Project, ProjectError, clean_columns, compare_columns
 from ragpdf.core.render import format_pages, parse_page_ranges, render_pages
 from ragpdf.core.workspace import slugify
 from ragpdf.indexing.extractor import Extractor, SpecChangedError, selected_pages
@@ -181,12 +181,25 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             "page_count": doc.info.page_count, "settings": project.settings_for(doc.id).model_dump(),
             "done": 0, "failed": 0,
         }
+        card = app.library.card(doc)
+        info["library"] = {"description": card.description, "data": [f.name for f in card.fields],
+                           "collections": len(card.collections), "folder": card.folder, "tags": card.tags}
         if project.info.spec:
             manifest_path = doc.extraction_dir(project.info.spec) / "manifest.json"
             if manifest_path.exists():
                 c = Manifest.load_or_create(manifest_path, doc.info.page_count).counts()
                 info.update(done=c.get(DONE, 0), failed=c.get("failed", 0))
         return info
+
+    def spec_columns_check(project: Project) -> dict[str, Any] | None:
+        """Confronto tra le colonne del progetto e quelle della specifica salvata (se ci sono entrambe)."""
+        if not project.info.fields or not project.info.spec:
+            return None
+        try:
+            spec = app.project_spec(project)
+        except (SpecError, FileNotFoundError):
+            return None
+        return compare_columns(project.info.column_names, [c.name for c in spec.columns])
 
     def project_summary(project: Project) -> dict[str, Any]:
         docs = app.project_documents(project)
@@ -195,6 +208,8 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         statuses = [doc_status(project, d) for d in docs]
         return {
             **project.info.model_dump(exclude={"settings"}),
+            "has_table": project.info.has_table,
+            "columns_check": spec_columns_check(project),
             "documents": statuses,
             "page_count": sum(d.info.page_count for d in docs),
             "done": sum(s["done"] for s in statuses),
@@ -203,23 +218,6 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             },
             "job": job.to_dict() if job else None,
         }
-
-    def goal_from_library(project: Project, docs: list[Document]) -> str:
-        """Obiettivo proposto: colonne del progetto (dal raggruppamento) o del primo catalogo
-        che ne ha, più le descrizioni scritte nella biblioteca."""
-        cards = [(d, app.library.card(d)) for d in docs]
-        if project.info.fields:
-            fields = [(f.get("name", ""), f.get("description", "")) for f in project.info.fields]
-        else:
-            fields = next(([(f.name, f.description) for f in c.fields] for _, c in cards if c.fields), [])
-        lines = [f"- {name}" + (f": {desc}" if desc else "") for name, desc in fields if name]
-        described = [f"- {d.info.title}: {c.description.strip()}" for d, c in cards if c.description.strip()]
-        parts = []
-        if lines:
-            parts.append("Colonne del CSV (dalla biblioteca):\n" + "\n".join(lines))
-        if described:
-            parts.append("Descrizione dei cataloghi:\n" + "\n".join(described))
-        return "\n\n".join(parts)
 
     # ------------------------------------------------------------------ stato
     @api.get("/api/status")
@@ -255,6 +253,24 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
     @api.get("/api/projects/{pid}")
     def get_project(pid: str):
         return project_summary(project_or_404(pid))
+
+    @api.put("/api/projects/{pid}/settings")
+    def project_settings(pid: str, body: dict = Body(...)):
+        """Impostazioni globali: descrizione, cosa è una riga, colonne, altre indicazioni."""
+        project = project_or_404(pid)
+        info = project.info
+        if "name" in body and str(body["name"] or "").strip():
+            info.name = " ".join(str(body["name"]).split())
+        if "description" in body:
+            info.description = str(body["description"] or "").strip()
+        if "row" in body:
+            info.row = " ".join(str(body["row"] or "").split())
+        if "columns" in body:
+            info.fields = clean_columns(body["columns"] if isinstance(body["columns"], list) else [])
+        if "instructions" in body:
+            info.instructions = str(body["instructions"] or "").strip()
+        project.save()
+        return project_summary(project)
 
     @api.delete("/api/projects/{pid}")
     def delete_project(pid: str):
@@ -775,6 +791,9 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             "spec": spec_info,
             "document_notes": session.document_notes(),
             "preview": preview,
+            "columns_check": (compare_columns(session.project.info.column_names,
+                                              [c["name"] for c in spec_info.get("columns", [])])
+                              if session.project.info.fields and spec_info["valid"] else None),
         }
         return view
 
@@ -788,7 +807,7 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         return {
             "session": session_view(session) if session else None,
             "suggested_pages": [list(r) for r in (examples or default_context_refs(docs))],
-            "suggested_goal": goal_from_library(project, docs),
+            "table": project.info.has_table,
         }
 
     @api.post("/api/projects/{pid}/setup")

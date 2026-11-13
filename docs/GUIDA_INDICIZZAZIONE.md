@@ -165,7 +165,8 @@ automaticamente.
 **Progetti (home).** Dai un nome, trascina uno o più PDF nel riquadro e premi *Crea progetto*.
 
 **Documenti.** Aggiungi altri PDF in qualsiasi momento (anche dopo l'indicizzazione: verranno
-elaborate solo le loro pagine). Per ogni PDF puoi impostare, facoltativamente:
+elaborate solo le loro pagine). Il nome di ogni PDF porta alla sua **scheda della biblioteca**;
+sotto vedi la sua descrizione e i dati presenti. Per ogni PDF puoi impostare, facoltativamente:
 - **note**: istruzioni in più valide solo per quel PDF, per le differenze o le particolarità
   da segnalare (es. "in questo catalogo la versione è scritta sotto il nome del motore");
 - **pagine da indicizzare**, se diverse dagli altri (es. `5-` se ha 4 pagine introduttive).
@@ -173,7 +174,21 @@ elaborate solo le loro pagine). Per ogni PDF puoi impostare, facoltativamente:
 Le **colonne** restano le stesse per tutti: è ciò che permette il CSV unico. Cambiando le note
 di un PDF andrà reindicizzato solo quel PDF.
 
-**1 · Configurazione.**
+**Impostazioni.** La tabella che il progetto deve produrre: **descrizione**, **cosa rappresenta
+una riga**, **colonne** nell'ordine del CSV (nome e descrizione) e **altre indicazioni**.
+Accanto a ogni colonna vedi in quanti PDF del progetto compare tra i *dati presenti* della
+biblioteca (es. `1/3`: negli altri resterà vuota o va spiegata nelle note); a destra trovi
+tutti i dati presenti dei PDF, e un clic ne aggiunge uno come colonna. Sono facoltative: senza
+colonne la configurazione guidata le propone dall'obiettivo scritto a parole. Se le compili,
+sono **vincolanti**: Gemini deve usarle esattamente, e il programma lo controlla (vedi sotto).
+
+**1 · Configurazione.** Gemini riceve anche le **schede della biblioteca** dei PDF (descrizione,
+dati presenti, mappa delle pagine con i commenti): le usa per il primer e per le note dei
+singoli PDF. Se le impostazioni hanno le colonne, la casella dell'obiettivo diventa *altre
+indicazioni*, e ogni versione proposta viene confrontata con le colonne del progetto: se non
+coincidono compare un avviso con le differenze e il pulsante *Chiedi a Gemini di correggerle*;
+salvare comunque richiede una conferma, e l'avviso resta nelle schede Impostazioni e
+Indicizzazione finché non si rifà la configurazione.
 1. Scegli le pagine da mostrare a Gemini. Con più PDF c'è una scheda per ciascuno: puoi
    prendere, per esempio, indice e legenda da un catalogo e due schede tipo da un altro.
    Clic sulle miniature (Maiusc+clic per un intervallo, doppio clic per ingrandire), oppure

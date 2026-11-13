@@ -161,7 +161,12 @@ def test_api_library(client, app, pdf_factory):
     assert stored["settings"] == {"alfa": {"notes": "", "pages": "3-11"}}
     setup = client.get(f"/api/projects/{project['id']}/setup").json()
     assert setup["suggested_pages"] == [["alfa", 4], ["alfa", 5]]
-    assert "- motore: modello" in setup["suggested_goal"] and "Motori agricoli" in setup["suggested_goal"]
+    assert setup["table"] is False
+    # la configurazione guidata riceve le schede della biblioteca (in diretta)
+    client.post(f"/api/projects/{project['id']}/setup", json={"context_pages": [["alfa", 4]]})
+    prompt = client.get(f"/api/projects/{project['id']}/setup/prompt").json()["prompt"]
+    assert "SCHEDE DEI DOCUMENTI (dalla biblioteca)" in prompt and "Descrizione: Motori agricoli" in prompt
+    assert "Dati presenti: motore (modello); alesaggio" in prompt and "pagine 3-11: Dati" in prompt
     assert client.delete("/api/library/catalogs/alfa").status_code == 400      # usato dal progetto
 
     other = client.post("/api/projects", json={"name": "Altro"}).json()

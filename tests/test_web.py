@@ -39,6 +39,7 @@ def test_page_and_status(web):
     assert "GeminiSnake" in client.get("/static/snake.js").text
     assert "renderLibrary" in client.get("/static/library.js").text
     assert "renderGrouping" in client.get("/static/grouping.js").text
+    assert "renderSettings" in client.get("/static/settings.js").text
     page = client.get("/")
     assert "/static/snake.js" in page.text
     # il browser deve ricontrollare l'interfaccia, per non mescolare versioni vecchie e nuove

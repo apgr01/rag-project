@@ -170,7 +170,10 @@ def test_api_flow(setup):
     summary = client.get(f"/api/projects/{project['id']}").json()
     assert [d["id"] for d in summary["documents"]] == ["alfa", "beta"]
     setup_view = client.get(f"/api/projects/{project['id']}/setup").json()
-    assert "- motore: modello\n- codice FIN" in setup_view["suggested_goal"]
+    assert setup_view["table"] is True
+    client.post(f"/api/projects/{project['id']}/setup", json={"context_pages": [["alfa", 2]]})
+    prompt = client.get(f"/api/projects/{project['id']}/setup/prompt").json()["prompt"]
+    assert "Colonne OBBLIGATORIE" in prompt and "  1. motore: modello\n  2. codice FIN" in prompt
     # gruppo con progetto creato: i suoi cataloghi non si spostano più da qui
     move = {"document": "alfa", "to": "ungrouped"}
     assert client.post(f"/api/library/groupings/{gid}/move", json=move).status_code == 400
