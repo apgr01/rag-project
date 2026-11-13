@@ -202,10 +202,10 @@ function jobSucceeded(j) { return j.status === "completato" && !(j.result && j.r
 /** Testi dell'animazione finale secondo il tipo di lavoro. */
 function finaleTexts(j) {
   if (j.kind === "index") return {};                                   // quelli predefiniti
-  if (j.kind === "grouping") return { title: "Raggruppamento pronto!", text: "Gruppi e progetti proposti ✦",
-                                      labels: ["gruppo", "gruppo", "report"] };
+  if (j.kind === "guided") return { title: "Proposta pronta!", text: "Tabella e cataloghi da unire ✦",
+                                    labels: ["tabella", "cataloghi", "progetto"] };
   if (j.kind === "analysis") return { title: "Analisi pronta!", text: "La proposta di Gemini ti aspetta ✦",
-                                      labels: ["descrizione", "campi", "pagine"] };
+                                      labels: ["descrizione", "dati", "pagine"] };
   return { title: "Gemini ha finito!", text: "Primer, specifica e anteprima appena sfornati ✦",
            labels: ["primer", "specifica", "anteprima"] };
 }
@@ -323,13 +323,12 @@ async function route() {
   const parts = location.hash.replace(/^#\/?/, "").split("/").map(decodeURIComponent);
   try {
     $$(".nav a").forEach(a => a.classList.toggle("active",
-      a.dataset.nav === (["biblioteca", "raggruppamenti"].includes(parts[0]) ? "library" : "projects")));
+      a.dataset.nav === (["biblioteca", "guidato"].includes(parts[0]) ? "library" : "projects")));
     if (parts[0] === "p" && parts[1]) await renderProject(parts[1], parts[2] || "docs");
     else if (parts[0] === "biblioteca" && parts[1] === "c" && parts[2]) await renderCatalog(parts[2]);
     else if (parts[0] === "biblioteca") await renderLibrary(parts.slice(1).join("/"));
-    else if (parts[0] === "raggruppamenti" && parts[1] === "nuovo") await renderGroupingNew();
-    else if (parts[0] === "raggruppamenti" && parts[1]) await renderGrouping(parts[1]);
-    else if (parts[0] === "raggruppamenti") await renderGroupings();
+    else if (parts[0] === "guidato" && parts[1] === "nuovo" && parts[2]) await renderGuidedNew(parts[2]);
+    else if (parts[0] === "guidato" && parts[1]) await renderGuidedReport(parts[1]);
     else await renderHome();
   } catch (e) {
     view.innerHTML = `<div class="panel note error">${esc(e.message)}</div><p><a href="#/">Torna all'elenco</a></p>`;
@@ -673,6 +672,8 @@ async function renderSetupForm(ctx, data) {
       <label>CSV di riferimento <span class="muted small">(facoltativo)</span></label>
       <p class="hint">Un indice già fatto: Gemini ne copia colonne e stile. Se contiene righe di questi PDF
         (stesso nome file nella colonna del file d'origine), ogni prova viene confrontata con esso.</p>
+      ${project.reference ? `<p class="hint">Il progetto ha già un CSV d'esempio: <strong>${esc(project.reference.split(/[\\/]/).pop())}</strong>
+        (dal progetto guidato). Viene usato se non ne scegli un altro.</p>` : ""}
       <div class="row"><input type="file" id="reference" accept=".csv,text/csv"><span id="reference-info" class="small muted"></span></div>
     </div>
     <details class="panel"><summary>Opzioni avanzate</summary>

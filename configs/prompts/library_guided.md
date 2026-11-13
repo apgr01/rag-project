@@ -1,0 +1,6 @@
+Voglio creare un progetto di indicizzazione: una tabella CSV unica, con le stesse colonne e le stesse regole per tutti i cataloghi che ne fanno parte. Parto da un catalogo che conosco e cerco nella mia biblioteca gli altri cataloghi da cui ricavare righe della stessa tabella.
+
+- **La tabella**: a partire da quello che ho descritto (a parole, con un elenco di colonne o con un CSV d'esempio) scrivi con precisione cosa rappresenta una riga e le colonne, nell'ordine in cui le metterei, ciascuna con una breve descrizione (cosa contiene, formato). Se ho già indicato le colonne tienile così, con gli stessi nomi; aggiungine solo se lo chiedo.
+- **Il catalogo di partenza**: dimmi quali colonne si possono ricavare da lui e quali no, e quali sue sezioni (collezioni di pagine) contengono i dati.
+- **I candidati**: proponi solo i cataloghi che possono davvero produrre righe di questa tabella: le righe rappresentano lo stesso tipo di cosa e almeno le colonne principali si ricavano dai loro dati. *Compatibile* se le colonne principali ci sono tutte, *parziale* se ne manca qualcuna. Ignora gli altri. Per ciascuno spiega il motivo in una frase e indica le sezioni con i dati.
+- **Un nome** breve per il progetto.

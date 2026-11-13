@@ -61,6 +61,7 @@ class ProjectInfo(BaseModel):
     row: str = ""                                                   # cosa rappresenta una riga
     fields: list[dict[str, str]] = Field(default_factory=list)      # colonne: {"name", "description"}
     instructions: str = ""                                          # altre indicazioni
+    reference: str | None = None          # CSV d'esempio (es. dal progetto guidato), per la configurazione
     created_at: str = Field(default_factory=utc_now)
 
     @property

@@ -38,6 +38,9 @@ from ragpdf.core.pdf_tools import has_text_layer, render_thumbnail
 from ragpdf.core.projects import DocumentSettings, Project, ProjectError, clean_columns, compare_columns
 from ragpdf.core.render import format_pages, parse_page_ranges, render_pages
 from ragpdf.core.workspace import slugify
+from ragpdf.guided_project import GuidedRequest, GuidedRun, get_run, list_runs, run_guided
+from ragpdf.guided_project import create_project as create_guided_project
+from ragpdf.guided_project import prepare as prepare_guided
 from ragpdf.indexing.extractor import Extractor, SpecChangedError, selected_pages
 from ragpdf.indexing.spec import SpecError, read_csv_rows
 from ragpdf.library_analysis import (
@@ -53,21 +56,6 @@ from ragpdf.library_analysis import (
     quick_pages,
     run_analysis,
     save_analysis,
-)
-from ragpdf.library_grouping import (
-    MAX_CATALOGS,
-    MAX_CATALOGS_WITH_IMAGES,
-    Grouping,
-    apply_group_tags,
-    create_group_project,
-    get_grouping,
-    is_studied,
-    list_groupings,
-    move_document,
-    prepare,
-    run_grouping,
-    save_grouping,
-    update_group,
 )
 from ragpdf.primer import MAX_SELECTED_PAGES
 from ragpdf.setup_session import (
@@ -517,112 +505,108 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         save_analysis(doc, analysis)
         return analysis_view(analysis)
 
-    # ------------------------------------------------------------------ raggruppamento con Gemini
-    group_prompts = PromptStore(app.workspace, prompt="library_group", filename="grouping_prompt.md")
-    GROUPING_JOB = "library-grouping"
+    # ------------------------------------------------------------------ progetto guidato
+    guided_prompts = PromptStore(app.workspace, prompt="library_guided", filename="guided_prompt.md")
 
-    def grouping_request(body: dict) -> tuple[list[Document], str, bool]:
-        ids = body.get("ids") or []
-        if not isinstance(ids, list):
-            raise ValueError("Elenco di cataloghi non valido.")
-        docs = [app.documents.get(str(i)) for i in dict.fromkeys(ids)]   # senza doppioni, in ordine
-        return docs, str(body.get("instructions") or ""), bool(body.get("with_images"))
+    def guided_job_key(doc: Document) -> str:
+        return f"guided:{doc.id}"
 
-    def catalog_brief(doc_id: str, projects: list[Project]) -> dict[str, Any]:
-        try:
-            doc = app.documents.get(doc_id)
-        except DocumentError:
-            return {"id": doc_id, "title": doc_id, "missing": True}
-        card = app.library.card(doc)
-        return {"id": doc.id, "title": doc.info.title, "folder": card.folder, "tags": card.tags,
-                "page_count": doc.info.page_count, "studied": is_studied(card), "missing": False,
-                "projects": [{"id": p.id, "name": p.info.name} for p in projects if doc.id in p.info.documents]}
+    def guided_request(body: dict) -> tuple[GuidedRequest, str]:
+        columns = body.get("columns") if isinstance(body.get("columns"), list) else []
+        request = GuidedRequest(row=str(body.get("row") or ""), columns=clean_columns(columns),
+                                text=str(body.get("text") or ""), reference=body.get("reference") or None,
+                                folder=str(body.get("folder") or ""))
+        if request.reference:
+            ref = Path(request.reference)
+            if ref.parent.resolve() != (app.workspace.root / "references").resolve() or not ref.exists():
+                raise ValueError("CSV d'esempio non trovato: caricalo di nuovo.")
+        return request, str(body.get("instructions") or "")
 
-    def grouping_view(g: Grouping) -> dict[str, Any]:
+    def run_view(run: GuidedRun) -> dict[str, Any]:
         projects = app.projects.list()
         names = {p.id: p.info.name for p in projects}
-        data = g.model_dump()
-        data["catalogs"] = {d: catalog_brief(d, projects) for d in g.documents}
-        for group in data["groups"]:
-            pid = group["project_id"]
-            group["project"] = {"id": pid, "name": names[pid]} if pid in names else None
+        data = run.model_dump()
+        ids = [run.seed] + [c.document for c in run.result.candidates]
+        data["catalogs"] = {}
+        for doc_id in ids:
+            try:
+                doc = app.documents.get(doc_id)
+            except DocumentError:
+                data["catalogs"][doc_id] = {"id": doc_id, "title": doc_id, "missing": True, "collections": []}
+                continue
+            card = app.library.card(doc)
+            data["catalogs"][doc_id] = {
+                "id": doc.id, "title": doc.info.title, "folder": card.folder, "page_count": doc.info.page_count,
+                "data": [f.name for f in card.fields], "missing": False,
+                "collections": [{"id": c.id, "start": c.start, "end": c.end, "tag": c.tag,
+                                 "label": PAGE_TAGS[c.tag][0], "comment": c.comment} for c in card.collections],
+            }
+        data["project"] = ({"id": run.project_id, "name": names[run.project_id]}
+                           if run.project_id in names else None)
+        data["reference_name"] = Path(run.request.reference).name if run.request.reference else None
         return data
 
-    @api.get("/api/library/grouping-prompt")
-    def grouping_prompt():
-        return {"factory": group_prompts.factory(), "custom": group_prompts.custom(),
-                "effective": group_prompts.effective(),
-                "max": MAX_CATALOGS, "max_with_images": MAX_CATALOGS_WITH_IMAGES}
+    @api.get("/api/library/guided-prompt")
+    def guided_prompt():
+        return {"factory": guided_prompts.factory(), "custom": guided_prompts.custom(),
+                "effective": guided_prompts.effective()}
 
-    @api.put("/api/library/grouping-prompt")
-    def grouping_prompt_save(body: dict = Body(...)):
-        group_prompts.save(str(body.get("text") or ""))
-        return grouping_prompt()
+    @api.put("/api/library/guided-prompt")
+    def guided_prompt_save(body: dict = Body(...)):
+        guided_prompts.save(str(body.get("text") or ""))
+        return guided_prompt()
 
-    @api.post("/api/library/groupings/preview")
-    def grouping_preview(body: dict = Body(...)):
-        """Prompt esatto, immagini e cataloghi poco studiati, senza chiamare Gemini."""
-        docs, instructions, with_images = grouping_request(body)
-        prepared = prepare(app, docs, instructions, with_images)
-        return {"prompt": prepared.prompt, "catalogs": len(docs), "not_studied": prepared.not_studied,
-                "images": [{"id": d, "page": p} for d, p in prepared.images]}
+    @api.post("/api/library/catalogs/{doc_id}/guided/preview")
+    def guided_preview(doc_id: str, body: dict = Body(...)):
+        """Prompt esatto e cataloghi che verrebbero confrontati, senza chiamare Gemini."""
+        doc = app.documents.get(doc_id)
+        request, instructions = guided_request(body)
+        prepared = prepare_guided(app, doc, request, instructions)
+        return {"prompt": prepared.prompt, "candidates": len(prepared.candidates),
+                "not_elaborated": prepared.not_elaborated}
 
-    @api.post("/api/library/groupings")
-    def grouping_start(body: dict = Body(...)):
-        docs, instructions, with_images = grouping_request(body)
-        prepare(app, docs, instructions, with_images)          # errori leggibili prima di partire
+    @api.post("/api/library/catalogs/{doc_id}/guided")
+    def guided_start(doc_id: str, body: dict = Body(...)):
+        doc = app.documents.get(doc_id)
+        request, instructions = guided_request(body)
+        prepare_guided(app, doc, request, instructions)          # errori leggibili prima di partire
         client = app.client()
 
         def work(job):
-            grouping = run_grouping(app, client, docs, instructions, with_images,
-                                    lambda message: job.control.progress(0, 0, message))
-            return {"grouping_id": grouping.id, "problems": grouping.problems}
+            run = run_guided(app, client, doc, request, instructions,
+                             lambda message: job.control.progress(0, 0, message))
+            return {"run_id": run.id, "problems": run.problems}
 
-        return jobs.submit(GROUPING_JOB, "grouping", f"Gemini confronta {len(docs)} cataloghi", work).to_dict()
+        return jobs.submit(guided_job_key(doc), "guided", f"Gemini cerca i cataloghi per '{doc.info.title}'",
+                           work).to_dict()
 
-    @api.get("/api/library/grouping-job")
-    def grouping_job():
-        job = jobs.active_for(GROUPING_JOB)
+    @api.get("/api/library/catalogs/{doc_id}/guided-job")
+    def guided_job(doc_id: str):
+        job = jobs.active_for(guided_job_key(app.documents.get(doc_id)))
         return job.to_dict() if job else None
 
-    @api.get("/api/library/groupings")
-    def groupings():
-        return [{"id": g.id, "created_at": g.created_at, "status": g.status, "catalogs": len(g.documents),
-                 "groups": len(g.groups), "ungrouped": len(g.ungrouped),
-                 "projects": sum(1 for x in g.groups if x.project_id)} for g in list_groupings(app.workspace)]
+    @api.get("/api/library/catalogs/{doc_id}/guided")
+    def guided_runs(doc_id: str):
+        names = {p.id: p.info.name for p in app.projects.list()}
+        return [{"id": r.id, "created_at": r.created_at, "status": r.status,
+                 "candidates": len(r.result.candidates), "project": (
+                     {"id": r.project_id, "name": names[r.project_id]} if r.project_id in names else None)}
+                for r in list_runs(app.workspace, seed=app.documents.get(doc_id).id)]
 
-    @api.get("/api/library/groupings/{grouping_id}")
-    def grouping_get(grouping_id: str):
-        return grouping_view(get_grouping(app.workspace, grouping_id))
+    @api.get("/api/library/guided/{run_id}")
+    def guided_get(run_id: str):
+        return run_view(get_run(app.workspace, run_id))
 
-    @api.post("/api/library/groupings/{grouping_id}/move")
-    def grouping_move(grouping_id: str, body: dict = Body(...)):
-        g = get_grouping(app.workspace, grouping_id)
-        move_document(g, str(body.get("document") or ""), str(body.get("to") or ""))
-        save_grouping(app.workspace, g)
-        return grouping_view(g)
-
-    @api.put("/api/library/groupings/{grouping_id}/groups/{index}")
-    def grouping_update(grouping_id: str, index: int, body: dict = Body(...)):
-        g = get_grouping(app.workspace, grouping_id)
-        update_group(g, index, name=body.get("name"),
-                     tags=[str(t) for t in body["tags"]] if isinstance(body.get("tags"), list) else None)
-        save_grouping(app.workspace, g)
-        return grouping_view(g)
-
-    @api.post("/api/library/groupings/{grouping_id}/groups/{index}/tags")
-    def grouping_tags(grouping_id: str, index: int, body: dict = Body(...)):
-        g = get_grouping(app.workspace, grouping_id)
-        apply_group_tags(app, g, index, [str(t) for t in body.get("tags") or []])
-        save_grouping(app.workspace, g)
-        return grouping_view(g)
-
-    @api.post("/api/library/groupings/{grouping_id}/groups/{index}/project")
-    def grouping_project(grouping_id: str, index: int, body: dict = Body(...)):
-        g = get_grouping(app.workspace, grouping_id)
-        create_group_project(app, g, index, str(body.get("name") or ""))
-        save_grouping(app.workspace, g)
-        return grouping_view(g)
+    @api.post("/api/library/guided/{run_id}/project")
+    def guided_project(run_id: str, body: dict = Body(...)):
+        run = get_run(app.workspace, run_id)
+        project = create_guided_project(
+            app, run, name=str(body.get("name") or ""), description=str(body.get("description") or ""),
+            row=str(body.get("row") or ""),
+            columns=body.get("columns") if isinstance(body.get("columns"), list) else [],
+            instructions=str(body.get("instructions") or ""),
+            documents=body.get("documents") if isinstance(body.get("documents"), list) else [])
+        return {"project": project_summary(project), "run": run_view(run)}
 
     @api.delete("/api/library/catalogs/{doc_id}")
     def library_delete(doc_id: str):
@@ -848,7 +832,8 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         session = SetupSession.new(
             app, project, refs,
             goal=str(body.get("goal") or ""),
-            reference_csv=Path(body["reference"]) if body.get("reference") else None,
+            reference_csv=(Path(body["reference"]) if body.get("reference")
+                           else Path(project.info.reference) if project.info.reference else None),
             primer_name=name or from_primer, spec_name=name or from_spec,
         )
         if from_primer:

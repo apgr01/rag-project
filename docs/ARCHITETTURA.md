@@ -36,7 +36,7 @@ src/ragpdf/
 ├── setup_session.py    logica della configurazione guidata (giri, anteprima, salvataggio)
 ├── primer.py           bozza del primer da PDF intero o da un estratto
 ├── library_analysis.py analisi di un catalogo della biblioteca con Gemini (proposte)
-├── library_grouping.py raggruppamento dei cataloghi in progetti, proposto da Gemini
+├── guided_project.py   progetto guidato: dalla scheda di un PDF a un progetto, con Gemini
 │
 ├── core/               infrastruttura comune alle due modalità
 │   ├── paths.py        percorsi dell'applicazione
@@ -196,16 +196,17 @@ data/library/folders.yaml           cartelle (anche vuote)
   è una proposta salvata in `documents/<id>/analyses/`, applicata solo per le voci scelte e
   senza doppioni. Le richieste troppo pesanti (400/413 con messaggi sui limiti) diventano
   `RequestTooLargeError`, senza nuovi tentativi.
-- **Raggruppamento** (`library_grouping.py`): una sola richiesta con le schede dei cataloghi
-  scelti (più, a richiesta, un'immagine a 100 DPI della pagina d'esempio di ciascuno), perché
-  i gruppi si decidono confrontando tutti insieme; per questo c'è un tetto (80 cataloghi, 40
-  con le immagini) invece di spezzare in più richieste. I cataloghi sono indicati con codici
-  `C1`, `C2`… che nello schema sono un `enum`. Stessa cornice fissa e stessa convalida
-  rigorosa dell'analisi, più i controlli sulla partizione: codici sconosciuti o un catalogo in
-  due posti rendono la risposta non valida; dimenticanze e gruppi di uno vengono corretti e
-  segnalati. Il risultato è un report in `data/library/groupings/<id>.json` su cui si lavora:
-  spostamenti, tag comuni, progetti creati (con le colonne unificate in `ProjectInfo.fields`,
-  usate come obiettivo proposto nella configurazione).
+- **Progetto guidato** (`guided_project.py`): parte da un catalogo e da una richiesta (riga,
+  colonne, CSV d'esempio, testo). Una sola richiesta, solo testo, con le schede dei cataloghi
+  **elaborati** (al massimo 300; si può restringere a una cartella). Cataloghi e sezioni hanno
+  codici (`C3`, `C3/2`, `P/1`) che nello schema sono `enum`; stessa cornice fissa e stessa
+  convalida rigorosa dell'analisi, più i controlli sui codici (sconosciuti, ripetuti, il
+  catalogo di partenza tra i candidati: non valida) e le correzioni di contenuto segnalate
+  (colonne doppie, coperture con nomi che non sono colonne, sezioni di un altro catalogo). Il
+  report (`data/library/guided/<id>.json`) diventa un progetto con le impostazioni globali, le
+  pagine dalle sezioni scelte e il CSV d'esempio come riferimento (`ProjectInfo.reference`).
+  Sostituisce il raggruppamento di più cataloghi selezionati, che partiva dai cataloghi invece
+  che dalla tabella voluta.
 - **Scala**: l'interfaccia riceve l'elenco completo in una risposta (centinaia di schede sono
   pochi KB) e filtra nel browser; le miniature vengono create solo quando servono e restano
   in cache (`documents/<id>/thumbs/`).

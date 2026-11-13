@@ -122,8 +122,9 @@ async function renderLibrary(folder) {
   view.innerHTML = `
     <h1>Biblioteca</h1>
     <p class="muted">Tutti i cataloghi, organizzati in cartelle. Apri un catalogo per descriverlo, scegliere i
-      dati presenti e segnare le sue pagine; poi seleziona i cataloghi simili e crea un progetto, oppure
-      fatti proporre da Gemini come raggrupparli. <a href="#/raggruppamenti">Raggruppamenti proposti →</a></p>
+      dati presenti e segnare le sue pagine. Per creare un progetto apri un catalogo e usa
+      <em>✨ Crea progetto guidato</em> (Gemini trova gli altri cataloghi da unire), oppure seleziona i cataloghi
+      qui e premi <em>Crea progetto…</em>.</p>
     <div class="lib">
       <aside class="panel lib-tree">
         <h3>Cartelle</h3>
@@ -172,7 +173,6 @@ async function renderLibrary(folder) {
             <button class="secondary small" id="sel-tag-add" type="button">Aggiungi tag</button>
             <button class="secondary small" id="sel-tag-remove" type="button">Togli tag</button>
             <button class="small" id="sel-project" type="button">Crea progetto…</button>
-            <button class="gemini small" id="sel-group" type="button" title="Gemini propone quali cataloghi accorpare in un progetto">Proponi raggruppamento…</button>
             <button class="secondary small" id="sel-delete" type="button">Elimina</button>
           </div>
           <datalist id="all-tags">${data.tags.map(t => `<option value="${esc(t.name)}">`).join("")}</datalist>
@@ -303,11 +303,6 @@ async function renderLibrary(folder) {
   });
   $("#sel-tag-add").addEventListener("click", e => retag("add", e.target));
   $("#sel-tag-remove").addEventListener("click", e => retag("remove", e.target));
-  $("#sel-group").addEventListener("click", () => {
-    if (selected.size < 2) { toast("Seleziona almeno 2 cataloghi da confrontare."); return; }
-    drafts.set("grouping-ids", JSON.stringify(ids()));
-    location.hash = "#/raggruppamenti/nuovo";
-  });
   $("#sel-project").addEventListener("click", async () => {
     const chosen = catalogs.filter(c => selected.has(c.id));
     const name = await promptDialog({ title: "Nuovo progetto con i cataloghi selezionati", label: "Nome del progetto",
@@ -380,6 +375,8 @@ async function renderCatalog(id) {
     <div class="row" style="margin:-.5rem 0 16px"><span class="spacer"></span>
       <button class="secondary" id="cat-delete" type="button">Elimina dalla biblioteca</button>
       <button id="cat-save" type="button">Salva scheda</button></div>
+
+    <div class="panel" id="guided-panel"></div>
 
     <div class="panel" id="analysis">
       <h3>✨ Analisi con Gemini</h3>
@@ -788,6 +785,8 @@ async function renderCatalog(id) {
 
   refreshSend();
   promptState();
+
+  renderGuidedPanel(c).catch(showError);
 
   // analisi in corso (pagina riaperta durante il lavoro)
   const running = await api("GET", `/api/library/catalogs/${enc(c.id)}/job`);

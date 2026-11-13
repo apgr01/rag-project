@@ -25,12 +25,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   legenda, pagine d'esempio).
 - La configurazione guidata riceve le **schede della biblioteca** dei PDF; nei *Documenti* del
   progetto ogni PDF rimanda alla sua scheda e ne mostra descrizione e dati presenti.
-- **Raggruppamento proposto da Gemini**: dai cataloghi selezionati nella biblioteca, una sola
-  richiesta con le loro schede (e, a scelta, una pagina d'esempio ciascuno); report con gruppi
-  (nome, commento, tag comuni, colonne unificate) e non accorpabili, cataloghi spostabili tra
-  i gruppi, tag da assegnare e progetti da creare; le colonne unificate diventano l'obiettivo
-  proposto del progetto. Archivio dei raggruppamenti; risposte fuori formato scartate come
-  non valide.
+- **Progetto guidato** dalla scheda di un PDF: descrivi l'indice che vuoi (riga, colonne, CSV
+  d'esempio o a parole) e Gemini, in una sola richiesta, propone la tabella e cerca tra i
+  cataloghi elaborati quelli da unire (compatibili o parziali, con colonne coperte e sezioni
+  con i dati). Dal report, modificabile, nasce il progetto con le impostazioni globali, le
+  pagine dalle sezioni scelte e il CSV d'esempio come riferimento. Risposte fuori formato
+  scartate come non valide.
 - Pulsante **Apri il PDF ↗** nel visualizzatore della scheda e nella finestra della pagina
   ingrandita: apre il PDF originale in una nuova scheda, alla pagina mostrata.
 - Progetto dalla biblioteca: pagine da indicizzare, pagine d'esempio, campi e descrizioni

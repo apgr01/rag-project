@@ -99,7 +99,7 @@ def quick_pages(page_count: int) -> list[int]:
 class PromptStore:
     """Indicazioni per Gemini modificabili dall'utente: di fabbrica o personali.
 
-    Di default quelle dell'analisi; il raggruppamento usa lo stesso meccanismo con altri file.
+    Di default quelle dell'analisi; il progetto guidato usa lo stesso meccanismo con altri file.
     """
 
     def __init__(self, workspace: Workspace, prompt: str = "library_analyze",

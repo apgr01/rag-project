@@ -124,26 +124,30 @@ La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **carte
    Se Gemini rifiuta la richiesta perché troppo pesante (troppe pagine o file troppo
    grande), il messaggio lo dice: scegli meno pagine. Prima dell'invio il programma blocca i
    PDF oltre 1000 pagine o circa 50 MB e avvisa per gli allegati pesanti.
-6. **Fatti proporre i raggruppamenti**: seleziona i cataloghi (anche da cartelle diverse, per
-   esempio filtrando per tag) e premi *✨ Proponi raggruppamento…*:
-   - nella pagina che si apre controlli i cataloghi (puoi toglierne qualcuno), vedi quali non
-     sono ancora studiati e, se vuoi, alleghi **una pagina d'esempio per catalogo** come
-     immagine (la prima *pagina d'esempio* segnata, altrimenti la prima pagina di *dati*);
-   - le **indicazioni** dicono a Gemini come valutare i cataloghi e sono modificabili come
-     nell'analisi; il formato della risposta è fisso e controllato;
-   - parte **una sola richiesta** con le schede (al massimo 80 cataloghi, 40 con le
-     immagini). Gemini usa codici C1, C2… e deve mettere ogni catalogo in un solo posto: se
-     sbaglia il formato, cita cataloghi inesistenti o mette un catalogo in due gruppi, la
-     risposta è *non valida* e non si usa; i cataloghi che dimentica e i gruppi di uno solo
-     finiscono tra i non accorpabili, con una nota;
-   - il **report** mostra i gruppi (nome del progetto, commento, colonne unificate, tag comuni)
-     e i non accorpabili con il motivo. Per ogni gruppo puoi cambiare il nome, **spostare** un
-     catalogo in un altro gruppo, tra i non accorpabili o in un nuovo gruppo, **assegnare i
-     tag** comuni e **creare il progetto**: le colonne unificate diventano l'obiettivo
-     proposto nella sua configurazione. Ai non accorpabili assegni un tag a tutti, ad alcuni
-     o a uno solo;
-   - i report restano in *Raggruppamenti proposti* (link in cima alla biblioteca): puoi
-     riaprirli e creare dopo i progetti che mancano.
+6. **Crea un progetto guidato** (pannello *✨ Crea progetto guidato* nella scheda del catalogo
+   da cui parti):
+   - descrivi **l'indice che vuoi**, in uno o più modi: *cosa rappresenta una riga*, le
+     **colonne** (anche con un clic sui dati presenti del catalogo), un **CSV d'esempio** (ne
+     legge colonne e prime righe; *Usa le sue colonne* le copia; diventa anche il riferimento
+     del progetto per la configurazione) oppure **a parole**;
+   - **dove cercare**: tutta la biblioteca o una cartella. Gemini confronta solo i cataloghi
+     **elaborati** (con descrizione o dati presenti): il riquadro dice quanti sono e quanti
+     restano esclusi;
+   - le **indicazioni** sono modificabili come nell'analisi; il formato della risposta è fisso;
+   - parte **una sola richiesta**, solo testo (al massimo 300 cataloghi). Gemini usa codici
+     per cataloghi (`C1`) e sezioni (`C1/2`): se cita codici inesistenti, mette il catalogo di
+     partenza tra i candidati o sbaglia il formato, la risposta è *non valida* e non si usa;
+   - il **report** mostra la **tabella** proposta (nome del progetto, descrizione, riga,
+     colonne: tutto modificabile), quali colonne si ricavano dal catalogo di partenza e i
+     **candidati** *compatibili* (già spuntati) o *parziali*, con motivo e colonne coperte;
+     accanto a ogni colonna vedi in quanti PDF scelti si ricava. Per ogni PDF scegli le
+     sezioni da indicizzare (proposte da Gemini, altrimenti quelle *Dati*);
+   - **Crea progetto**: la tabella diventa l'impostazione globale del progetto (vincolante per
+     la configurazione), le sezioni scelte le pagine da indicizzare. Le proposte restano nel
+     pannello della scheda (*Proposte precedenti*), con il link al progetto creato.
+
+   Lo stesso catalogo può avviare più progetti guidati, per tabelle diverse (es. "una riga per
+   motore" e "una riga per componente").
 7. **Oppure crea il progetto a mano**: seleziona i cataloghi simili e premi *Crea progetto…*. Le
    pagine *dati* diventano le pagine del progetto, le *pagine d'esempio* sono già
    scelte nella configurazione guidata e dati presenti e descrizioni compongono l'obiettivo proposto

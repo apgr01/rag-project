@@ -6,8 +6,7 @@ preciso di ciascuna. Serve a non confondere cose che si somigliano (tag, note, p
 **Legenda dello stato**
 
 - ✅ **esiste oggi** e funziona così;
-- 🔜 **deciso**, in lavorazione (vedi *Fase 1* nella [roadmap](ROADMAP.md));
-- 🗑 **da togliere**, sostituito da qualcos'altro.
+- 🔜 **deciso**, in lavorazione (vedi *Fase 1* nella [roadmap](ROADMAP.md)).
 
 ---
 
@@ -21,7 +20,7 @@ preciso di ciascuna. Serve a non confondere cose che si somigliano (tag, note, p
    │   collezioni di pagine                │        │ PDF del progetto (rimandano alla scheda) │
    │                                       │        │   + pagine e note proprie del progetto   │
    │ ✨ analisi → proposta per la scheda   │        │ configurazione guidata ✨ → primer +     │
-   │ ✨ progetto guidato 🔜 ───────────────┼──────► │   specifica                              │
+   │ ✨ progetto guidato ──────────────────┼──────► │   specifica                              │
    │   (dalla scheda di un PDF)            │ crea   │ indicizzazione ✨ → risultati (CSV)      │
    └──────────────────────────────────────┘        └──────────────────────────────────────────┘
    ✨ = passaggio che usa Gemini (sempre con conferma, il prompt è visibile prima dell'invio)
@@ -121,7 +120,7 @@ Il risultato di un'analisi: **non viene applicato da solo**. Si sceglie voce per
 copiare nella scheda. Resta nell'**archivio delle analisi** con uno stato: *da rivedere*,
 *applicata*, *scartata* o *non valida*.
 
-**Progetto guidato** 🔜
+**Progetto guidato** ✅
 Dalla scheda di un PDF: descrivi l'**indice che vuoi** (con una tabella di colonne, un CSV
 d'esempio o a parole) e Gemini cerca **tra i cataloghi elaborati** quali possono produrre
 righe di quella tabella. Una richiesta, poi un **report**: la tabella ripulita (modificabile),
@@ -130,8 +129,8 @@ con motivo, colonne coperte e collezioni con i dati). Scegli i candidati e **cre
 progetto**, con la tabella come impostazioni globali. Lo stesso PDF può avviare più progetti
 guidati (es. "per motore" e "per componente").
 
-**Raggruppamento** 🗑
-La proposta di gruppi a partire da più cataloghi selezionati nella biblioteca. Viene
+**Raggruppamento** (tolto)
+La proposta di gruppi a partire da più cataloghi selezionati nella biblioteca. È stata
 sostituita dal progetto guidato, che parte da un bisogno concreto (una tabella) invece di
 dividere i cataloghi in gruppi.
 
@@ -269,7 +268,6 @@ PDF andrebbero rifatti. Il progetto **non scrive** nella biblioteca.
 |---|---|---|---|
 | tag del catalogo | scheda | sì | filtrare e ritrovare i cataloghi |
 | tag di pagina | collezioni | no, elenco fisso | dire cosa c'è in un intervallo di pagine |
-| tag comuni 🗑 | raggruppamento | sì | tag da dare insieme ai cataloghi di un gruppo |
 
 **I testi liberi** — chi li scrive e a cosa servono:
 
@@ -299,7 +297,7 @@ PDF andrebbero rifatti. Il progetto **non scrive** nella biblioteca.
 | Termine | Dove | Conta nell'indicizzazione? |
 |---|---|---|
 | dati presenti | scheda del catalogo | no: inventario, serve a capire e a proporre progetti |
-| colonne della tabella richiesta 🔜 | progetto guidato | no: diventano le colonne del progetto |
+| colonne della tabella richiesta | progetto guidato | no: diventano le colonne del progetto |
 | colonne del progetto | impostazioni globali | sì, tramite la specifica che deve rispettarle |
 | colonne della specifica | specifica | **sì**, sono quelle usate davvero |
 
@@ -308,7 +306,7 @@ PDF andrebbero rifatti. Il progetto **non scrive** nella biblioteca.
 | Passaggio | Cosa propone | Dove si decide |
 |---|---|---|
 | analisi | una scheda per un catalogo | proposta nella scheda, voce per voce |
-| progetto guidato 🔜 | la tabella e i cataloghi da unire | report, candidato per candidato |
+| progetto guidato | la tabella e i cataloghi da unire | report, candidato per candidato |
 | configurazione guidata | primer, specifica, note, pagine della prova | versioni, correzioni a parole, salvataggio |
 
 ---

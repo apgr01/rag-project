@@ -38,7 +38,7 @@ def test_page_and_status(web):
     assert client.get("/static/app.js").status_code == 200
     assert "GeminiSnake" in client.get("/static/snake.js").text
     assert "renderLibrary" in client.get("/static/library.js").text
-    assert "renderGrouping" in client.get("/static/grouping.js").text
+    assert "renderGuidedNew" in client.get("/static/guided.js").text
     assert "renderSettings" in client.get("/static/settings.js").text
     page = client.get("/")
     assert "/static/snake.js" in page.text

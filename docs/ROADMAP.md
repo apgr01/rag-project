@@ -84,12 +84,10 @@ Decisi insieme e da rispettare in tutti gli step:
   impostazioni e schede.
 - [x] **Pagine per PDF scelte dalle collezioni** e *Aggiorna dalla biblioteca* (regola: ciò che
   descrive si legge in diretta, ciò che comanda si copia).
-- [ ] **Progetto guidato** dalla scheda del PDF, al posto del raggruppamento in biblioteca.
+- [x] **Progetto guidato** dalla scheda del PDF, al posto del raggruppamento in biblioteca.
 - [ ] **Ritorno nella scheda**: progetti in cui il PDF è usato e stato dell'indicizzazione.
-- [x] **C · Raggruppamento**: azione sui cataloghi selezionati; Gemini riceve le schede (e, a
-  richiesta, una pagina d'esempio ciascuno) e risponde con uno schema rigido (gruppi con
-  commento, tag comuni e colonne unificate; non accorpabili con il motivo); report in archivio
-  con spostamenti, tag e creazione dei progetti.
+- [x] ~~**C · Raggruppamento**~~ dei cataloghi selezionati: realizzato e poi sostituito dal
+  *progetto guidato*, che parte dalla tabella voluta invece che dai cataloghi.
 
 ## Altri passi della fase 0
 
