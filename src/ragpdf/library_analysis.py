@@ -30,7 +30,16 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from ragpdf.core.documents import Document
 from ragpdf.core.fileio import atomic_write_text, utc_now, write_json
 from ragpdf.core.gemini import LLMClient
-from ragpdf.core.library import PAGE_TAGS, FieldDef, Library, LibraryCard, LibraryError, PageCollection, normalize_tags
+from ragpdf.core.library import (
+    PAGE_TAGS,
+    FieldDef,
+    Library,
+    LibraryCard,
+    LibraryError,
+    PageCollection,
+    normalize_page_tag,
+    normalize_tags,
+)
 from ragpdf.core.pdf_tools import build_subset_pdf, page_mapping_text
 from ragpdf.core.prompts import load_prompt, render_prompt
 from ragpdf.core.render import format_pages
@@ -126,7 +135,7 @@ def describe_card(card: LibraryCard) -> str:
     if card.tags:
         lines.append(f"- Tag: {', '.join(card.tags)}")
     if card.fields:
-        lines.append("- Campi: " + "; ".join(f.name + (f" ({f.description})" if f.description else "")
+        lines.append("- Dati presenti: " + "; ".join(f.name + (f" ({f.description})" if f.description else "")
                                              for f in card.fields))
     for c in card.collections:
         pages = f"{c.start}" if c.start == c.end else f"{c.start}-{c.end}"
@@ -330,6 +339,14 @@ class Analysis(BaseModel):
     status: str = "nuova"                    # nuova | applicata | scartata | non_valida
     applied_at: str | None = None
     raw: Any = None                          # risposta originale, conservata solo se non valida
+
+    @field_validator("result")
+    @classmethod
+    def _current_tags(cls, result: dict[str, Any]) -> dict[str, Any]:
+        for c in result.get("collections", []) or []:
+            if isinstance(c, dict) and "tag" in c:
+                c["tag"] = normalize_page_tag(c["tag"])
+        return result
 
     @property
     def pages_text(self) -> str:

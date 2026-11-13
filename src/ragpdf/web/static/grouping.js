@@ -39,7 +39,7 @@ async function renderGroupingNew() {
       <div id="g-check"></div>
       <label class="row" style="font-weight:normal"><input type="checkbox" id="g-images"> Allega una pagina d'esempio per
         catalogo (immagine)</label>
-      <p class="hint">La prima <em>pagina d'esempio</em> segnata nel catalogo, altrimenti la prima <em>da indicizzare</em>.
+      <p class="hint">La prima <em>pagina d'esempio</em> segnata nel catalogo, altrimenti la prima pagina di <em>dati</em>.
         Aiuta Gemini a capire se i layout si somigliano davvero, ma costa più token. Al massimo ${info.max_with_images}
         cataloghi con le immagini, ${info.max} senza.</p>
     </div>
@@ -245,7 +245,7 @@ async function renderGrouping(id) {
       const ok = await confirmDialog({ title: "Creare il progetto?", ok: "Crea progetto", html: `
         <p>Progetto <strong>${esc(name.value.trim() || group.name)}</strong> con ${group.documents.length} PDF:
           ${group.documents.map(d => esc(cat(d).title)).join(", ")}.</p>
-        <p class="hint">Le pagine segnate <em>da indicizzare</em> diventano le pagine dei PDF;
+        <p class="hint">Le pagine segnate <em>dati</em> diventano le pagine dei PDF;
           ${group.fields.length ? `le ${group.fields.length} colonne unificate diventano l'obiettivo proposto nella configurazione` : "non ci sono colonne unificate"}.</p>` });
       if (!ok) return;
       await busy(e.target, async () => {

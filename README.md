@@ -75,8 +75,8 @@ ragpdf ui
 ```
 
 Si apre nel browser l'**interfaccia grafica**. Nella **biblioteca** carichi i cataloghi in
-cartelle, li descrivi, dai loro dei tag, scegli i campi da indicizzare e segni le pagine
-(copertina, indice, pagine da indicizzare, pagine d'esempio...). Poi crei un **progetto** con uno o più PDF della
+cartelle, li descrivi, dai loro dei tag, elenchi i dati presenti e segni le pagine
+(copertina, indice, pagine con i dati, pagine d'esempio...). Poi crei un **progetto** con uno o più PDF della
 stessa struttura (es. i cataloghi di un editore), scegli le pagine cliccando le miniature,
 Gemini propone cosa estrarre e prova l'estrazione su ogni PDF, tu correggi a parole (anche con
 note per singoli PDF); poi avvii l'indicizzazione e ottieni **un CSV unico** per tutti i PDF e

@@ -1,4 +1,4 @@
-"""Biblioteca dei cataloghi: cartelle, tag, descrizione, campi e collezioni di pagine.
+"""Biblioteca dei cataloghi: cartelle, tag, descrizione, dati presenti e collezioni di pagine.
 
 È il posto dove i PDF "vivono" e si studiano prima di decidere come indicizzarli; i
 progetti li usano, ma non li possiedono. Accanto a ``document.yaml`` ogni documento ha
@@ -10,7 +10,11 @@ una *scheda* della biblioteca::
 Le cartelle sono percorsi testuali (``Motori/Lombardini``): ogni catalogo sta in una sola
 cartella (``""`` = cartella principale). I tag del catalogo sono liberi; i tag delle
 *collezioni di pagine* invece sono fissi (PAGE_TAGS), perché servono al programma:
-ad esempio le pagine ``da-indicizzare`` e ``esempio`` precompilano i progetti.
+ad esempio le pagine ``dati`` e ``esempio`` precompilano i progetti.
+
+I **dati presenti** (``fields``) sono l'inventario dei dati indicizzabili del catalogo
+(motore, versione, codice...), senza ordine: servono a capire il PDF e a proporre progetti,
+ma non decidono le colonne del CSV, che sono del progetto.
 """
 
 from __future__ import annotations
@@ -28,18 +32,26 @@ from ragpdf.core.workspace import Workspace
 # Tag fissi delle collezioni di pagine: id -> (etichetta, spiegazione). L'ordine è quello
 # mostrato nell'interfaccia.
 PAGE_TAGS: dict[str, tuple[str, str]] = {
-    "da-indicizzare": ("Da indicizzare", "Pagine con i dati da estrarre nel CSV"),
+    "dati": ("Dati", "Pagine con dati indicizzabili (tabelle, elenchi di codici...)"),
     "esempio": ("Pagina d'esempio", "Pagine rappresentative, da mostrare a Gemini in configurazione"),
     "copertina": ("Copertina", "Copertina, frontespizio, retro"),
     "indice": ("Indice", "Sommario o indice analitico"),
     "introduzione": ("Introduzione", "Presentazione, istruzioni d'uso del catalogo"),
     "legenda": ("Legenda / simboli", "Spiegazione di simboli, abbreviazioni, codici"),
-    "tabelle-tecniche": ("Tabelle tecniche", "Dati tecnici non da indicizzare (o non ancora)"),
+    "tabelle-tecniche": ("Tabelle tecniche", "Dati tecnici di contorno, di solito non da indicizzare"),
     "disegni": ("Disegni / immagini", "Esplosi, foto, schemi"),
     "avvertenze": ("Avvertenze / note", "Note, condizioni, avvertenze"),
     "vuota": ("Pubblicità / vuota", "Pagine senza contenuto utile"),
     "altro": ("Altro", "Tutto il resto (spiegalo nel commento)"),
 }
+
+
+# nomi dei tag di pagina delle versioni precedenti -> nomi attuali
+OLD_PAGE_TAGS = {"da-indicizzare": "dati"}
+
+
+def normalize_page_tag(tag: str) -> str:
+    return OLD_PAGE_TAGS.get(tag, tag)
 
 
 class LibraryError(ValueError):
@@ -69,7 +81,8 @@ def normalize_tags(tags: list[str] | None) -> list[str]:
 
 
 class FieldDef(BaseModel):
-    """Un campo dello schema di indicizzazione: una colonna del futuro CSV."""
+    """Un dato con nome e descrizione facoltativa: un dato presente nel catalogo, oppure una
+    colonna del progetto."""
 
     name: str
     description: str = ""
@@ -97,6 +110,7 @@ class PageCollection(BaseModel):
     @field_validator("tag")
     @classmethod
     def _tag(cls, v: str) -> str:
+        v = normalize_page_tag(v)
         if v not in PAGE_TAGS:
             raise ValueError(f"Tag di pagina sconosciuto: '{v}'.")
         return v

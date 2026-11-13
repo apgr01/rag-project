@@ -31,6 +31,9 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   non cancella più il PDF né i suoi risultati. `ragpdf remove` rifiuta un PDF usato da un
   progetto.
 - L'attributo `hidden` nasconde sempre gli elementi dell'interfaccia.
+- Biblioteca: i "campi" diventano **dati presenti**, un inventario dei dati indicizzabili senza
+  ordine (le colonne le decide il progetto); il tag di pagina *da indicizzare* diventa **dati**
+  (le schede e le analisi già salvate vengono convertite in lettura).
 - Analisi con Gemini: pagine scelte sulle miniature come nella configurazione guidata; le
   indicazioni dell'utente non possono più alterare il formato della risposta, che viene
   controllato in modo rigoroso (una risposta fuori formato è *non valida* e non si usa).

@@ -87,13 +87,16 @@ La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **carte
    un tag mostra i cataloghi con quel tag da tutte le cartelle (più tag: devono averli tutti).
 4. **Studia un catalogo** (clic sul nome):
    - **Scheda**: titolo, cartella, tag e una descrizione libera di cosa contiene e com'è fatto.
-   - **Campi da indicizzare**: le colonne che vuoi nel CSV, con una breve descrizione
-     (es. `alesaggio` → "diametro del cilindro in mm"). Pagina e file li aggiunge il programma.
+   - **Dati presenti**: l'inventario dei dati che si potrebbero estrarre dal catalogo (motore,
+     versione, codice, alesaggio...), in qualsiasi ordine, con una descrizione facoltativa
+     (es. `alesaggio` → "diametro del cilindro in mm"). Non decidono le colonne del CSV, che
+     sceglie il progetto: servono a capire il PDF e a trovare i cataloghi da unire.
    - **Pagine e collezioni**: sfoglia le miniature (frecce ← → per cambiare pagina; mentre giochi
      a Snake le frecce sono del gioco); *Apri il PDF ↗* apre il PDF originale in una nuova
      scheda alla pagina che stai guardando; clic per vedere una pagina, **Maiusc+clic** per selezionare un intervallo, poi scegli il tag e
-     aggiungi la collezione (es. 1-2 *Copertina*, 3-4 *Indice*, 9-250 *Da indicizzare*,
-     12-13 *Pagina d'esempio*). Una pagina può stare in più collezioni.
+     aggiungi la collezione (es. 1-2 *Copertina*, 3-4 *Indice*, 9-250 *Dati* con il commento
+     "tabelle codici per motore", 12-13 *Pagina d'esempio*). Le collezioni descrivono il
+     contenuto; quelle *Dati* indicano le pagine con dati indicizzabili. Una pagina può stare in più collezioni.
 5. **Fatti aiutare da Gemini** (pannello *✨ Analisi con Gemini* nella scheda del catalogo):
    - scegli le **pagine da inviare** sulle miniature, come nella configurazione guidata: clic
      per selezionare, Maiusc+clic per un intervallo, doppio clic per ingrandire; oppure
@@ -111,7 +114,7 @@ La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **carte
    - con *Tieni conto della scheda attuale* Gemini completa e corregge quello che hai già
      scritto;
    - la risposta diventa una **proposta da rivedere**: scegli la descrizione (non usare,
-     sostituisci, aggiungi in fondo), i tag, i campi e le collezioni da applicare. Le
+     sostituisci, aggiungi in fondo), i tag, i dati presenti e le collezioni da applicare. Le
      collezioni marcate *dedotta* sono state ricavate dall'indice senza vedere le pagine:
      controllale. Nella scheda restano segnate *Gemini* o *dedotta*;
    - ogni analisi resta in archivio (*Analisi archiviate*) e si può rivedere e applicare anche
@@ -125,7 +128,7 @@ La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **carte
    esempio filtrando per tag) e premi *✨ Proponi raggruppamento…*:
    - nella pagina che si apre controlli i cataloghi (puoi toglierne qualcuno), vedi quali non
      sono ancora studiati e, se vuoi, alleghi **una pagina d'esempio per catalogo** come
-     immagine (la prima *pagina d'esempio* segnata, altrimenti la prima *da indicizzare*);
+     immagine (la prima *pagina d'esempio* segnata, altrimenti la prima pagina di *dati*);
    - le **indicazioni** dicono a Gemini come valutare i cataloghi e sono modificabili come
      nell'analisi; il formato della risposta è fisso e controllato;
    - parte **una sola richiesta** con le schede (al massimo 80 cataloghi, 40 con le
@@ -142,8 +145,8 @@ La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **carte
    - i report restano in *Raggruppamenti proposti* (link in cima alla biblioteca): puoi
      riaprirli e creare dopo i progetti che mancano.
 7. **Oppure crea il progetto a mano**: seleziona i cataloghi simili e premi *Crea progetto…*. Le
-   pagine *da indicizzare* diventano le pagine del progetto, le *pagine d'esempio* sono già
-   scelte nella configurazione guidata e campi e descrizioni compongono l'obiettivo proposto
+   pagine *dati* diventano le pagine del progetto, le *pagine d'esempio* sono già
+   scelte nella configurazione guidata e dati presenti e descrizioni compongono l'obiettivo proposto
    (modificabile).
 
 Dalla scheda *Documenti* di un progetto puoi anche aggiungere PDF con **Scegli dalla

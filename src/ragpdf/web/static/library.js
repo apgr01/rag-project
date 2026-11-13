@@ -14,7 +14,7 @@ const libFilters = { search: "", tags: [] };
 
 // colori delle collezioni di pagine (tag fissi)
 const PAGE_TAG_COLORS = {
-  "da-indicizzare": "#1e8e4e", "esempio": "#2c5fd6", "copertina": "#8a6d3b", "indice": "#7b68d9",
+  "dati": "#1e8e4e", "esempio": "#2c5fd6", "copertina": "#8a6d3b", "indice": "#7b68d9",
   "introduzione": "#3a8fb7", "legenda": "#b96db5", "tabelle-tecniche": "#d08a00", "disegni": "#c4312b",
   "avvertenze": "#a35d00", "vuota": "#8b93a1", "altro": "#4a5568",
 };
@@ -122,7 +122,7 @@ async function renderLibrary(folder) {
   view.innerHTML = `
     <h1>Biblioteca</h1>
     <p class="muted">Tutti i cataloghi, organizzati in cartelle. Apri un catalogo per descriverlo, scegliere i
-      campi da indicizzare e segnare le sue pagine; poi seleziona i cataloghi simili e crea un progetto, oppure
+      dati presenti e segnare le sue pagine; poi seleziona i cataloghi simili e crea un progetto, oppure
       fatti proporre da Gemini come raggrupparli. <a href="#/raggruppamenti">Raggruppamenti proposti →</a></p>
     <div class="lib">
       <aside class="panel lib-tree">
@@ -188,8 +188,8 @@ async function renderLibrary(folder) {
                 ${c.description ? `<br><span class="small">${esc(c.description.length > 140 ? c.description.slice(0, 140) + "…" : c.description)}</span>` : ""}</td>
               <td>${c.page_count}</td>
               <td>${tagBadges(c.tags)}</td>
-              <td class="small">${c.fields ? `${c.fields} campi<br>` : ""}${c.collections ? `${c.collections} collezioni` : ""}
-                ${c.to_index ? `<br><span class="badge ok">${c.to_index} pag. da indicizzare</span>` : ""}
+              <td class="small">${c.fields ? `${c.fields} dati<br>` : ""}${c.collections ? `${c.collections} collezioni` : ""}
+                ${c.to_index ? `<br><span class="badge ok">${c.to_index} pag. di dati</span>` : ""}
                 ${c.proposals ? `<br><span class="badge warn">✨ proposta da rivedere</span>` : ""}
                 ${!c.fields && !c.collections && !c.description && !c.proposals ? `<span class="muted">da studiare</span>` : ""}</td>
               <td class="small">${c.projects.map(p => `<a href="#/p/${enc(p.id)}/docs">${esc(p.name)}</a>`).join("<br>") || "—"}</td>
@@ -312,8 +312,8 @@ async function renderLibrary(folder) {
     const chosen = catalogs.filter(c => selected.has(c.id));
     const name = await promptDialog({ title: "Nuovo progetto con i cataloghi selezionati", label: "Nome del progetto",
       value: chosen.length === 1 ? chosen[0].title : "", ok: "Crea progetto",
-      help: `${chosen.map(c => esc(c.title)).join(", ")}.<br>Le pagine segnate <em>da indicizzare</em> diventano le pagine
-             del progetto; le pagine d'esempio, i campi e le descrizioni precompilano la configurazione guidata.` });
+      help: `${chosen.map(c => esc(c.title)).join(", ")}.<br>Le pagine segnate <em>dati</em> diventano le pagine
+             del progetto; le pagine d'esempio, i dati presenti e le descrizioni precompilano la configurazione guidata.` });
     if (!name) return;
     await busy(null, async () => {
       const p = await api("POST", "/api/library/projects", { name, ids: ids() });
@@ -369,11 +369,12 @@ async function renderCatalog(id) {
         <textarea id="cat-desc" rows="5" placeholder="Cosa contiene, come è organizzato, particolarità (es. il codice OEM è nella colonna a destra; la versione è sotto il nome del motore)"></textarea>
       </div>
       <div class="panel">
-        <h3>Campi da indicizzare</h3>
-        <p class="hint">Le colonne che vuoi nel CSV, nell'ordine. La descrizione aiuta Gemini a capire cosa intendi.
-          Pagina e file d'origine li aggiunge il programma.</p>
+        <h3>Dati presenti</h3>
+        <p class="hint">L'inventario dei dati che si potrebbero estrarre da questo catalogo (motore, versione, codice...),
+          in qualsiasi ordine. Non decidono le colonne del CSV, che sceglierà il progetto: servono a capire il PDF e a
+          trovare i cataloghi da unire. La descrizione (unità, formato, dove si trova) è facoltativa.</p>
         <div id="fields"></div>
-        <div class="row" style="margin-top:.5rem"><button class="secondary small" id="field-add" type="button">+ Aggiungi campo</button></div>
+        <div class="row" style="margin-top:.5rem"><button class="secondary small" id="field-add" type="button">+ Aggiungi dato</button></div>
       </div>
     </div>
     <div class="row" style="margin:-.5rem 0 16px"><span class="spacer"></span>
@@ -382,7 +383,7 @@ async function renderCatalog(id) {
 
     <div class="panel" id="analysis">
       <h3>✨ Analisi con Gemini</h3>
-      <p class="hint">Gemini guarda le pagine che scegli e propone descrizione, tag, campi e collezioni di pagine.
+      <p class="hint">Gemini guarda le pagine che scegli e propone descrizione, tag, dati presenti e collezioni di pagine.
         Niente viene salvato finché non applichi la proposta; ogni analisi resta archiviata.</p>
       <h4 style="margin:.75rem 0 .25rem">Pagine da inviare</h4>
       <p class="hint">Clic per selezionare, <kbd>Maiusc</kbd>+clic per un intervallo, doppio clic per ingrandire.
@@ -469,15 +470,11 @@ async function renderCatalog(id) {
     $("#fields").innerHTML = fields.length ? fields.map((f, i) => `
       <div class="field-row">
         <input type="text" data-fname="${i}" placeholder="nome (es. alesaggio)" value="${esc(f.name)}">
-        <input type="text" data-fdesc="${i}" placeholder="descrizione (es. diametro del cilindro in mm)" value="${esc(f.description)}">
-        <button class="secondary small" data-fup="${i}" type="button" title="Sposta su" ${i ? "" : "disabled"}>&uarr;</button>
+        <input type="text" data-fdesc="${i}" placeholder="descrizione facoltativa (es. diametro del cilindro in mm)" value="${esc(f.description)}">
         <button class="secondary small" data-fdel="${i}" type="button" title="Togli">&times;</button>
-      </div>`).join("") : `<p class="muted small">Nessun campo: aggiungi le colonne che ti servono.</p>`;
+      </div>`).join("") : `<p class="muted small">Nessun dato: aggiungi quelli che vedi nel catalogo, o fatti aiutare dall'analisi con Gemini.</p>`;
     $$("[data-fname]").forEach(el => el.addEventListener("input", () => { fields[+el.dataset.fname].name = el.value; }));
     $$("[data-fdesc]").forEach(el => el.addEventListener("input", () => { fields[+el.dataset.fdesc].description = el.value; }));
-    $$("[data-fup]").forEach(b => b.addEventListener("click", () => {
-      const i = +b.dataset.fup; [fields[i - 1], fields[i]] = [fields[i], fields[i - 1]]; renderFields();
-    }));
     $$("[data-fdel]").forEach(b => b.addEventListener("click", () => { fields.splice(+b.dataset.fdel, 1); renderFields(); }));
   };
   renderFields();
@@ -546,7 +543,7 @@ async function renderCatalog(id) {
           <button class="secondary small" data-cedit="${esc(x.id)}" type="button">Modifica</button>
           <button class="secondary small" data-cdel="${esc(x.id)}" type="button">Elimina</button></td></tr>`).join("")}
       </tbody></table></div>`
-      : `<p class="muted small" style="margin-top:.75rem">Nessuna collezione: segna ad esempio copertina, indice, legenda e le pagine da indicizzare.</p>`;
+      : `<p class="muted small" style="margin-top:.75rem">Nessuna collezione: segna ad esempio copertina, indice, legenda e le pagine con i dati.</p>`;
     $$("[data-cgo]").forEach(b => b.addEventListener("click", () => {
       const x = collections.find(y => y.id === b.dataset.cgo); select(x.start, x.end); show(x.start);
     }));
@@ -731,7 +728,7 @@ async function renderCatalog(id) {
           ? `<span class="chip" title="già presente">✓ ${esc(t)}</span>`
           : `<label class="chip"><input type="checkbox" data-ptag="${esc(t)}" checked> ${esc(t)}</label>`).join("") || `<span class="muted small">nessuno</span>`}</div>
 
-        <h4>Campi</h4>
+        <h4>Dati presenti</h4>
         ${r.fields.length ? r.fields.map((f, i) => {
           const old = has.fields[f.name.toLowerCase()];
           return `<label class="row small" style="font-weight:normal;margin:.15rem 0">
@@ -810,7 +807,7 @@ async function pickFromLibrary(exclude = []) {
         <input type="checkbox" value="${esc(c.id)}"> <span><strong>${esc(c.title)}</strong>
         <span class="small muted">${esc(c.folder || "Biblioteca")} · ${c.page_count} pag.</span> ${tagBadges(c.tags)}</span></label>`).join("")}
     </div>
-    <p class="hint">Le pagine segnate <em>da indicizzare</em> nella biblioteca diventano le pagine del PDF nel progetto.</p>` });
+    <p class="hint">Le pagine segnate <em>dati</em> nella biblioteca diventano le pagine del PDF nel progetto.</p>` });
   return ok ? $$(".pick-list input:checked").map(i => i.value) : [];
 }
 

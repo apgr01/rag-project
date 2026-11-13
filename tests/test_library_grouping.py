@@ -52,7 +52,7 @@ def setup(config, pdf_factory):
     card.description, card.tags = "Motori diesel, tabelle FIN.", ["motori"]
     lib.save_card(docs[0], card)
     lib.add_collection(docs[0], 2, 3, "esempio")
-    lib.add_collection(docs[1], 4, 6, "da-indicizzare")
+    lib.add_collection(docs[1], 4, 6, "dati")
     return app, docs, responder
 
 

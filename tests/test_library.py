@@ -64,19 +64,19 @@ def test_old_documents_are_migrated(app, pdf_factory):
 def test_collections(app, pdf_factory):
     doc = app.add_to_library(pdf_factory("Alfa.pdf", pages=10))
     lib = app.library
-    a = lib.add_collection(doc, 9, 3, "da-indicizzare", " tabelle ")     # ordine invertito: corretto
+    a = lib.add_collection(doc, 9, 3, "dati", " tabelle ")     # ordine invertito: corretto
     assert (a.start, a.end, a.comment) == (3, 9, "tabelle")
     lib.add_collection(doc, 1, 1, "copertina")
     lib.add_collection(doc, 4, 5, "esempio")
     card = lib.card(doc)
-    assert [c.tag for c in card.collections] == ["copertina", "da-indicizzare", "esempio"]   # per pagina
-    assert card.pages_with_tag("da-indicizzare") == list(range(3, 10))
+    assert [c.tag for c in card.collections] == ["copertina", "dati", "esempio"]   # per pagina
+    assert card.pages_with_tag("dati") == list(range(3, 10))
     with pytest.raises(LibraryError, match="fuori"):
         lib.add_collection(doc, 8, 11, "indice")
     with pytest.raises(ValueError):
         lib.add_collection(doc, 1, 2, "inventato")
     lib.update_collection(doc, a.id, 3, 4, "tabelle-tecniche", "")
-    assert lib.card(doc).pages_with_tag("da-indicizzare") == []
+    assert lib.card(doc).pages_with_tag("dati") == []
     lib.remove_collection(doc, a.id)
     with pytest.raises(LibraryError):
         lib.remove_collection(doc, a.id)
@@ -135,19 +135,19 @@ def test_api_library(client, app, pdf_factory):
     assert dup.status_code == 400
 
     r = client.post("/api/library/catalogs/alfa/collections",
-                    json={"start": 3, "end": 10, "tag": "da-indicizzare", "comment": "tabelle"}).json()
+                    json={"start": 3, "end": 10, "tag": "dati", "comment": "tabelle"}).json()
     cid = r["collections"][0]["id"]
     client.post("/api/library/catalogs/alfa/collections", json={"start": 4, "end": 5, "tag": "esempio"})
     assert client.post("/api/library/catalogs/alfa/collections",
                        json={"start": 3, "end": 30, "tag": "indice"}).status_code == 400
     assert client.put(f"/api/library/catalogs/alfa/collections/{cid}",
-                      json={"start": 3, "end": 11, "tag": "da-indicizzare"}).json()["to_index"] == 9
+                      json={"start": 3, "end": 11, "tag": "dati"}).json()["to_index"] == 9
 
     client.post("/api/library/tags", json={"ids": ["alfa", "beta"], "add": ["da studiare"], "remove": ["fin"]})
     overview = client.get("/api/library/catalogs").json()
     assert overview["folders"] == ["Motori", "Motori/VM"]
     assert {t["name"]: t["count"] for t in overview["tags"]} == {"da studiare": 2, "motori": 1}
-    assert [t["id"] for t in overview["page_tags"]][:2] == ["da-indicizzare", "esempio"]
+    assert [t["id"] for t in overview["page_tags"]][:2] == ["dati", "esempio"]
 
     assert client.post("/api/library/folders", json={"path": "Nuova"}).json()["folder"] == "Nuova"
     client.post("/api/library/move", json={"ids": ["beta"], "folder": "Nuova"})
@@ -176,3 +176,16 @@ def test_api_library(client, app, pdf_factory):
 def test_card_defaults():
     card = LibraryCard()
     assert card.folder == "" and card.pages_with_tag("esempio") == []
+
+
+def test_old_page_tag_is_renamed(app, pdf_factory):
+    """Le schede salvate con il vecchio tag "da-indicizzare" si leggono come "dati"."""
+    doc = app.add_to_library(pdf_factory("Alfa.pdf", pages=6))
+    path = app.library.card_path(doc)
+    text = path.read_text(encoding="utf-8").replace("collections: []", (
+        "collections:\n- id: vecchia01\n  start: 2\n  end: 4\n  tag: da-indicizzare\n  comment: tabelle\n"))
+    path.write_text(text, encoding="utf-8")
+    card = app.library.card(doc)
+    assert card.collections[0].tag == "dati" and card.pages_with_tag("dati") == [2, 3, 4]
+    project = app.create_project_from_library("P", [doc])
+    assert project.settings_for(doc.id).pages == "2-4"

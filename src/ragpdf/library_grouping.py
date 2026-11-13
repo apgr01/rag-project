@@ -94,7 +94,7 @@ def grouping_schema(codes: list[str]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------------- prompt
 def example_page(card: LibraryCard) -> int | None:
     """La pagina d'esempio di un catalogo: la prima "pagina d'esempio", altrimenti la prima da indicizzare."""
-    for tag in ("esempio", "da-indicizzare"):
+    for tag in ("esempio", "dati"):
         pages = card.pages_with_tag(tag)
         if pages:
             return pages[0]
@@ -119,7 +119,7 @@ def describe_catalog(code: str, doc: Document, card: LibraryCard, projects: list
             description = description[:MAX_DESCRIPTION_CHARS].rstrip() + " [...]"
         lines.append(f"- Descrizione: {description}")
     if card.fields:
-        lines.append("- Campi: " + "; ".join(f.name + (f" ({f.description})" if f.description else "")
+        lines.append("- Dati presenti: " + "; ".join(f.name + (f" ({f.description})" if f.description else "")
                                              for f in card.fields))
     by_tag: dict[str, list[int]] = {}
     for c in card.collections:

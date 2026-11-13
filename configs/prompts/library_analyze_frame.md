@@ -29,7 +29,7 @@ Rispondi SOLO con un oggetto JSON con esattamente questi campi, nessuno in più 
 
 - `description` (testo): la descrizione del catalogo, in italiano.
 - `tags` (elenco di testi): parole chiave brevi, minuscole, senza frasi.
-- `fields` (elenco di oggetti `{"name": testo, "description": testo}`): le colonne del CSV nell'ordine proposto; non includere il numero di pagina né il nome del file.
+- `fields` (elenco di oggetti `{"name": testo, "description": testo}`): i dati indicizzabili presenti nel catalogo (un inventario: l'ordine non conta); non includere il numero di pagina né il nome del file.
 - `collections` (elenco di oggetti `{"start": intero, "end": intero, "tag": testo, "comment": testo, "deduced": vero/falso}`): intervalli continui di pagine nella numerazione originale, con `start` ≤ `end` e `tag` scelto tra gli identificativi elencati sopra.
 - `notes` (testo): osservazioni e dubbi; testo vuoto se non ce ne sono.
 

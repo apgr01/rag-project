@@ -136,11 +136,11 @@ class App:
     def create_project_from_library(self, name: str, docs: list[Document]) -> Project:
         """Nuovo progetto con i cataloghi scelti nella biblioteca.
 
-        Le collezioni "da indicizzare" diventano le pagine da indicizzare di ciascun PDF.
+        Le collezioni "dati" diventano le pagine da indicizzare di ciascun PDF.
         """
         project = self.projects.create(name, [d.id for d in docs])
         for doc in docs:
-            pages = self.library.card(doc).pages_with_tag("da-indicizzare")
+            pages = self.library.card(doc).pages_with_tag("dati")
             if pages:
                 project.set_settings(doc.id, DocumentSettings(pages=format_pages(pages)))
         project.save()

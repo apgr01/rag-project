@@ -32,8 +32,8 @@ ANSWER = {
                {"name": "Motore", "description": "doppione"}],
     "collections": [
         {"start": 1, "end": 1, "tag": "copertina", "comment": "", "deduced": False},
-        {"start": 8, "end": 3, "tag": "da-indicizzare", "comment": "tabelle", "deduced": False},
-        {"start": 9, "end": 12, "tag": "da-indicizzare", "comment": "dall'indice", "deduced": True},
+        {"start": 8, "end": 3, "tag": "dati", "comment": "tabelle", "deduced": False},
+        {"start": 9, "end": 12, "tag": "dati", "comment": "dall'indice", "deduced": True},
         {"start": 4, "end": 4, "tag": "esempio", "comment": "", "deduced": False},
         {"start": 11, "end": 40, "tag": "indice", "comment": "", "deduced": True},
     ],
@@ -84,7 +84,7 @@ def test_prompt_has_frame_mapping_and_card(setup):
     assert prompt.index("# Formato della risposta") > prompt.index("FINE INDICAZIONI »»»\n")
     assert "prevalgono su qualsiasi indicazione" in prompt
     assert "pagina 2 dell'estratto = pagina 5 del documento originale" in prompt
-    assert "`da-indicizzare`" in prompt and "Pagine 1: copertina — fronte" in prompt
+    assert "`dati`" in prompt and "Pagine 1: copertina — fronte" in prompt
     whole = build_prompt(doc, card, "", None, include_card=False)
     assert "documento COMPLETO (12 pagine)" in whole and "Scheda attuale" not in whole
     assert PromptStore(app.workspace).factory()[:40] in whole
@@ -95,7 +95,7 @@ def test_validate_cleans_the_answer():
     assert result["tags"] == ["motori", "diesel", "alfa"]
     assert [f["name"] for f in result["fields"]] == ["motore", "codice FIN"]
     assert [(c["start"], c["end"], c["tag"]) for c in result["collections"]] == [
-        (1, 1, "copertina"), (3, 8, "da-indicizzare"), (4, 4, "esempio"), (9, 12, "da-indicizzare")]
+        (1, 1, "copertina"), (3, 8, "dati"), (4, 4, "esempio"), (9, 12, "dati")]
     assert len(problems) == 2 and any("11-40" in p for p in problems) and any("Motore" in p for p in problems)
 
 
@@ -115,7 +115,7 @@ def test_validate_rejects_broken_structure(change, expected):
         validate(broken, page_count=12)
     with pytest.raises(InvalidAnswerError, match="oggetto JSON"):
         validate(["non", "un", "oggetto"], page_count=12)
-    assert ANALYSIS_SCHEMA["properties"]["collections"]["items"]["properties"]["tag"]["enum"][0] == "da-indicizzare"
+    assert ANALYSIS_SCHEMA["properties"]["collections"]["items"]["properties"]["tag"]["enum"][0] == "dati"
 
 
 def test_run_and_apply(setup):
@@ -134,7 +134,7 @@ def test_run_and_apply(setup):
     assert [f.name for f in card.fields] == ["motore", "codice FIN"]
     # la copertina c'era già: niente doppione; l'intervallo dedotto è marcato
     assert [(c.start, c.end, c.tag, c.origin) for c in card.collections] == [
-        (1, 1, "copertina", ""), (3, 8, "da-indicizzare", "gemini"), (9, 12, "da-indicizzare", "dedotta")]
+        (1, 1, "copertina", ""), (3, 8, "dati", "gemini"), (9, 12, "dati", "dedotta")]
     assert list_analyses(doc)[0].status == "applicata"
 
     card = apply_analysis(doc, app.library, analysis, Selection(description="replace"))
@@ -199,3 +199,14 @@ def test_api_flow(setup):
     responder.error = RequestTooLargeError("La richiesta è troppo pesante per Gemini: scegli meno pagine.")
     job = client.post(f"{base}/analysis", json={"whole": True}).json()
     assert job["status"] == ERROR and "scegli meno pagine" in job["error"]
+
+
+def test_old_analysis_tags_are_renamed(setup):
+    app, doc, _ = setup
+    analysis = run_analysis(doc, app.library, app.client(), "", [1])
+    path = doc.folder / "analyses" / f"{analysis.id}.json"
+    path.write_text(path.read_text(encoding="utf-8").replace('"dati"', '"da-indicizzare"'), encoding="utf-8")
+    stored = list_analyses(doc)[0]
+    assert {c["tag"] for c in stored.result["collections"]} <= {"copertina", "dati", "esempio"}
+    card = apply_analysis(doc, app.library, stored, Selection(collections=[1]))
+    assert card.collections[0].tag == "dati"

@@ -43,7 +43,7 @@ src/ragpdf/
 │   ├── config.py       configurazione validata (Pydantic)
 │   ├── workspace.py    struttura della cartella dati
 │   ├── projects.py     progetti: più PDF, impostazioni per PDF
-│   ├── library.py      biblioteca: cartelle, tag, campi, collezioni di pagine
+│   ├── library.py      biblioteca: cartelle, tag, dati presenti, collezioni di pagine
 │   ├── documents.py    registro dei documenti (id, SHA-256, primer)
 │   ├── render.py       PDF -> PNG con cache
 │   ├── pdf_tools.py    estratti PDF, testo nativo ripulito
@@ -146,7 +146,7 @@ un progetto o eliminare un progetto non cancella il PDF né i suoi risultati; un
 dalla biblioteca solo se nessun progetto lo usa.
 
 ```
-data/documents/<id>/library.yaml    scheda: cartella, tag, descrizione, campi, collezioni
+data/documents/<id>/library.yaml    scheda: cartella, tag, descrizione, dati presenti, collezioni
 data/library/folders.yaml           cartelle (anche vuote)
 ```
 
@@ -154,11 +154,13 @@ data/library/folders.yaml           cartelle (anche vuote)
   Rinominare o spostare una cartella aggiorna le schede che contiene.
 - **Tag del catalogo**: liberi, senza doppioni (maiuscole e minuscole non contano). Filtrano
   i cataloghi di tutte le cartelle.
-- **Campi**: le colonne desiderate (nome + descrizione facoltativa), nell'ordine.
+- **Dati presenti** (`fields` nella scheda): l'inventario dei dati indicizzabili del catalogo
+  (nome + descrizione facoltativa), senza ordine. Servono a capire il PDF e a proporre
+  progetti; le colonne del CSV le decide il progetto.
 - **Collezioni di pagine**: intervalli continui con un **tag fisso** (`PAGE_TAGS` in
   `core/library.py`) e un commento. I tag sono fissi perché il programma li usa: creando un
-  progetto dalla biblioteca le pagine `da-indicizzare` diventano le pagine del PDF nel
-  progetto, le pagine `esempio` quelle proposte nella configurazione guidata, campi e
+  progetto dalla biblioteca le pagine `dati` diventano le pagine del PDF nel
+  progetto, le pagine `esempio` quelle proposte nella configurazione guidata, dati presenti e
   descrizioni l'obiettivo proposto. Una pagina può stare in più collezioni.
 - **Analisi con Gemini** (`library_analysis.py`): estratto PDF delle pagine scelte (o PDF
   intero) e prompt in due parti, le **istruzioni** modificabili dall'utente

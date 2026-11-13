@@ -319,7 +319,7 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             "page_count": doc.info.page_count, "added_at": doc.info.added_at,
             "folder": card.folder, "tags": card.tags, "description": card.description,
             "fields": len(card.fields), "collections": len(card.collections),
-            "to_index": len(card.pages_with_tag("da-indicizzare")),
+            "to_index": len(card.pages_with_tag("dati")),
             "proposals": sum(1 for a in list_analyses(doc) if a.status == "nuova"),
             "projects": [{"id": p.id, "name": p.info.name} for p in projects if doc.id in p.info.documents],
         }
@@ -646,7 +646,7 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         for doc in docs_from_body(body):
             if doc.id not in project.info.documents:
                 app.projects.add_document(project, doc.id)
-                pages = app.library.card(doc).pages_with_tag("da-indicizzare")
+                pages = app.library.card(doc).pages_with_tag("dati")
                 if pages:
                     project.set_settings(doc.id, DocumentSettings(pages=format_pages(pages)))
                     project.save()

@@ -77,6 +77,15 @@ Decisi insieme e da rispettare in tutti gli step:
   proposta di descrizione, tag, campi e collezioni da accettare o correggere.
 - [ ] **B2 · Analisi in blocco** dei cataloghi selezionati (selezione rapida o PDF intero,
   stesse istruzioni), con proposte da rivedere una per una.
+- [x] **Dati presenti e tag *dati***: i campi della scheda diventano un inventario senza ordine;
+  il tag di pagina *da indicizzare* diventa *dati*.
+- [ ] **Impostazioni globali del progetto** (descrizione, riga, colonne vincolanti con
+  copertura); PDF del progetto che rimandano alla scheda; configurazione guidata che usa
+  impostazioni e schede.
+- [ ] **Pagine per PDF scelte dalle collezioni** e *Aggiorna dalla biblioteca* (regola: ciò che
+  descrive si legge in diretta, ciò che comanda si copia).
+- [ ] **Progetto guidato** dalla scheda del PDF, al posto del raggruppamento in biblioteca.
+- [ ] **Ritorno nella scheda**: progetti in cui il PDF è usato e stato dell'indicizzazione.
 - [x] **C · Raggruppamento**: azione sui cataloghi selezionati; Gemini riceve le schede (e, a
   richiesta, una pagina d'esempio ciascuno) e risponde con uno schema rigido (gruppi con
   commento, tag comuni e colonne unificate; non accorpabili con il motivo); report in archivio

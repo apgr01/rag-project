@@ -173,8 +173,8 @@ a.linkbtn.small { padding: .2rem .55rem; font-size: .85rem; }
 .cover { width: 38px; min-height: 48px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); display: block; }
 
 /* scheda del catalogo */
-.field-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto auto; gap: .35rem; margin-bottom: .35rem; }
-@media (max-width: 600px) { .field-row { grid-template-columns: 1fr auto auto; } .field-row [data-fdesc] { grid-column: 1 / -1; grid-row: 2; } }
+.field-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto; gap: .35rem; margin-bottom: .35rem; }
+@media (max-width: 600px) { .field-row { grid-template-columns: 1fr auto; } .field-row [data-fdesc] { grid-column: 1 / -1; grid-row: 2; } }
 .viewer { display: grid; grid-template-columns: minmax(200px, 330px) minmax(0, 1fr); gap: 12px; }
 @media (max-width: 800px) { .viewer { grid-template-columns: 1fr; } .viewer-thumbs { max-height: 16rem; } }
 .viewer-thumbs { max-height: 72vh; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); align-content: start; }
