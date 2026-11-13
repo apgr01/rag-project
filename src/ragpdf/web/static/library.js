@@ -377,19 +377,27 @@ async function renderCatalog(id) {
       <h3>✨ Analisi con Gemini</h3>
       <p class="hint">Gemini guarda le pagine che scegli e propone descrizione, tag, campi e collezioni di pagine.
         Niente viene salvato finché non applichi la proposta; ogni analisi resta archiviata.</p>
-      <label for="a-pages">Pagine da inviare</label>
+      <h4 style="margin:.75rem 0 .25rem">Pagine da inviare</h4>
+      <p class="hint">Clic per selezionare, <kbd>Maiusc</kbd>+clic per un intervallo, doppio clic per ingrandire.
+        Di solito bastano copertina, indice, legenda e qualche pagina tipo: le parti che non vede Gemini le deduce dall'indice.</p>
       <div class="row">
-        <input type="text" id="a-pages" placeholder="es. 1-6, 20, 45-46" style="flex:1;min-width:10rem">
-        <button class="secondary small" id="a-add-sel" type="button" title="Aggiunge le pagine selezionate nel visualizzatore qui sotto">+ Selezione del visualizzatore</button>
+        <input type="text" id="a-pages" placeholder="oppure scrivile, es. 1-6, 20, 45-46" style="flex:1;min-width:10rem">
         <button class="secondary small" id="a-quick" type="button">Selezione rapida (prime 6 + 8)</button>
-        <button class="secondary small" id="a-clear" type="button">Svuota</button>
+        <button class="secondary small" id="a-clear" type="button">Nessuna</button>
+        <a class="linkbtn secondary small" href="/api/documents/${enc(c.id)}/pdf" target="_blank" rel="noopener">Apri il PDF ↗</a>
       </div>
       <label class="row" style="font-weight:normal"><input type="checkbox" id="a-whole"> Invia tutto il PDF
         (${total} pagine, ${sizeText(c.size_mb)})</label>
       <p class="hint" id="a-info"></p>
-      <label for="a-instr">Istruzioni per Gemini <span class="muted small">(modificabili; il programma aggiunge
-        da sé pagine inviate, tag disponibili e formato della risposta)</span></label>
-      <textarea id="a-instr" rows="10"></textarea>
+      <div class="thumbs" id="a-thumbs">${Array.from({ length: total }, (_, i) => i + 1).map(p => `
+        <div class="thumb" data-p="${p}"><img loading="lazy" src="/api/documents/${enc(c.id)}/thumb/${p}" alt="pagina ${p}">${p}</div>`).join("")}</div>
+
+      <h4 style="margin:1rem 0 .25rem">Indicazioni per Gemini</h4>
+      <p class="hint">Qui decidi <strong>cosa</strong> Gemini deve cercare e come descriverlo. Il <strong>formato</strong> della
+        risposta invece è fisso: lo aggiunge il programma dopo le tue indicazioni, con la regola che prevale su qualsiasi
+        richiesta diversa, e ogni risposta viene controllata. Se non rispetta il formato viene scartata e segnata
+        <em>non valida</em>, senza toccare la scheda. <em>Vedi il prompt</em> mostra il testo completo.</p>
+      <textarea id="a-instr" rows="10" maxlength="8000"></textarea>
       <div class="row">
         <button class="secondary small" id="a-save-default" type="button">Salva come mio predefinito</button>
         <button class="secondary small" id="a-reset" type="button">Ripristina quello di fabbrica</button>
@@ -415,7 +423,9 @@ async function renderCatalog(id) {
             <button class="secondary small" id="v-prev" type="button">&larr;</button>
             <span>Pagina <input type="text" id="v-page" style="width:4rem;text-align:center"> di ${total}</span>
             <button class="secondary small" id="v-next" type="button">&rarr;</button>
-            <span class="spacer"></span><span class="small muted" id="v-in"></span>
+            <span class="small muted" id="v-in"></span><span class="spacer"></span>
+            <a class="linkbtn secondary small" id="v-open" href="/api/documents/${enc(c.id)}/pdf" target="_blank"
+               rel="noopener" title="Apre il PDF originale in una nuova scheda del browser, a questa pagina">Apri il PDF ↗</a>
           </div>
           <img id="v-img" class="viewer-img" alt="">
         </div>
@@ -499,6 +509,7 @@ async function renderCatalog(id) {
     current = Math.min(total, Math.max(1, p));
     $("#v-page").value = current;
     $("#v-img").src = `/api/documents/${enc(c.id)}/page/${current}`;
+    $("#v-open").href = `/api/documents/${enc(c.id)}/pdf#page=${current}`;
     const inside = collections.filter(x => x.start <= current && current <= x.end);
     $("#v-in").innerHTML = inside.map(x => pageTagChip(x.tag, tags[x.tag].label)).join(" ");
     $$(".thumb.current", thumbs).forEach(t => t.classList.remove("current"));
@@ -573,59 +584,67 @@ async function renderCatalog(id) {
     toast(editing ? "Collezione aggiornata." : `Collezione "${tags[body.tag].label}" aggiunta.`);
     stopEditing(); drawMarks(); show(current, false);
   }));
-  // frecce della tastiera per sfogliare (non mentre si scrive)
+  // frecce della tastiera per sfogliare (non mentre si scrive, né mentre è visibile il gioco)
+  const gameVisible = () => { const g = document.querySelector(".gs-wrap"); return !!(g && g.offsetParent !== null); };
   const onKey = e => {
     if (!$("#v-thumbs")) { window.removeEventListener("keydown", onKey); return; }
-    if (/input|textarea|select/i.test(e.target.tagName) || document.querySelector("dialog[open]")) return;
+    if (/input|textarea|select/i.test(e.target.tagName) || document.querySelector("dialog[open]") || gameVisible()) return;
     if (e.key === "ArrowRight") { e.preventDefault(); show(current + 1); }
     else if (e.key === "ArrowLeft") { e.preventDefault(); show(current - 1); }
   };
   window.addEventListener("keydown", onKey);
 
   // --- analisi con Gemini
-  const pagesInput = $("#a-pages"), whole = $("#a-whole"), instr = $("#a-instr");
+  const pagesInput = $("#a-pages"), whole = $("#a-whole"), instr = $("#a-instr"), aThumbs = $("#a-thumbs");
   const pagesKey = `analysis-pages:${c.id}`, instrKey = "analysis-instructions";
   const promptInfo = await api("GET", "/api/library/analysis-prompt");
-  pagesInput.value = drafts.get(pagesKey);
+  let toSend = new Set(), lastSend = null;
+  try { toSend = new Set(parsePages(drafts.get(pagesKey), total)); } catch { /* bozza non valida: si riparte da zero */ }
   instr.value = drafts.get(instrKey) || promptInfo.effective;
-  const sendPages = () => { try { return parsePages(pagesInput.value, total); } catch { return []; } };
-  const refreshSend = () => {
-    drafts.set(pagesKey, pagesInput.value);
-    const pages = new Set(whole.checked ? [] : sendPages());
-    $$(".thumb", thumbs).forEach(t => t.classList.toggle("tosend", pages.has(+t.dataset.p)));
+  // stessa selezione a miniature della configurazione guidata
+  const refreshSend = (fromText = false) => {
+    if (!fromText) pagesInput.value = formatPages([...toSend]);
+    drafts.set(pagesKey, formatPages([...toSend]));
+    $$(".thumb", aThumbs).forEach(t => t.classList.toggle("selected", !whole.checked && toSend.has(+t.dataset.p)));
+    aThumbs.classList.toggle("off", whole.checked);
     pagesInput.disabled = whole.checked;
-    let info = "";
-    if (whole.checked) info = `Verrà inviato il PDF intero: ${total} pagine, ${sizeText(c.size_mb)}.`;
-    else if (pagesInput.value.trim()) {
-      try { info = `${parsePages(pagesInput.value, total).length} pagine da inviare (segnate con ✉ nelle miniature).`; }
-      catch (e) { info = `⚠ ${e.message}`; }
-    } else info = "Scegli le pagine: scrivile, oppure seleziona nel visualizzatore e premi + Selezione del visualizzatore.";
-    $("#a-info").textContent = info;
+    $("#a-info").textContent = whole.checked ? `Verrà inviato il PDF intero: ${total} pagine, ${sizeText(c.size_mb)}.`
+      : toSend.size ? `${toSend.size} pagin${toSend.size === 1 ? "a selezionata" : "e selezionate"}: ${formatPages([...toSend])}.`
+      : "Nessuna pagina selezionata: cliccale qui sotto, usa la selezione rapida oppure invia tutto il PDF.";
   };
+  aThumbs.addEventListener("click", e => {
+    const t = e.target.closest(".thumb"); if (!t) return;
+    const p = +t.dataset.p;
+    whole.checked = false;
+    if (e.shiftKey && lastSend) {
+      for (let q = Math.min(lastSend, p); q <= Math.max(lastSend, p); q++) toSend.add(q);
+    } else if (toSend.has(p)) toSend.delete(p); else toSend.add(p);
+    lastSend = p; refreshSend();
+  });
+  aThumbs.addEventListener("dblclick", e => { const t = e.target.closest(".thumb"); if (t) showPage(c.id, t.dataset.p, c.title); });
+  pagesInput.addEventListener("change", () => {
+    try { toSend = new Set(parsePages(pagesInput.value, total)); refreshSend(true); }
+    catch (err) { toast(err.message); }
+  });
+  whole.addEventListener("change", () => refreshSend());
   const promptState = () => {
     const custom = promptInfo.custom;
     $("#a-prompt-state").textContent = instr.value.trim() === (custom || promptInfo.factory).trim()
-      ? (custom ? "Istruzioni: il tuo predefinito." : "Istruzioni: quelle di fabbrica.")
-      : "Istruzioni modificate (valgono per questo invio).";
+      ? (custom ? "Indicazioni: il tuo predefinito." : "Indicazioni: quelle di fabbrica.")
+      : "Indicazioni modificate (valgono per questo invio).";
   };
-  pagesInput.addEventListener("input", refreshSend);
-  whole.addEventListener("change", refreshSend);
   instr.addEventListener("input", () => { drafts.set(instrKey, instr.value); promptState(); });
-  $("#a-add-sel").addEventListener("click", () => {
-    const pages = new Set([...sendPages(), ...Array.from({ length: selEnd - selStart + 1 }, (_, i) => selStart + i)]);
-    pagesInput.value = formatPages([...pages]); whole.checked = false; refreshSend();
-  });
   $("#a-quick").addEventListener("click", e => busy(e.target, async () => {
     const r = await api("GET", `/api/library/catalogs/${enc(c.id)}/quick-pages`);
-    pagesInput.value = r.pages; whole.checked = false; refreshSend();
+    toSend = new Set(parsePages(r.pages, total)); whole.checked = false; refreshSend();
   }));
-  $("#a-clear").addEventListener("click", () => { pagesInput.value = ""; whole.checked = false; refreshSend(); });
+  $("#a-clear").addEventListener("click", () => { toSend = new Set(); whole.checked = false; refreshSend(); });
   $("#a-save-default").addEventListener("click", e => busy(e.target, async () => {
     Object.assign(promptInfo, await api("PUT", "/api/library/analysis-prompt", { text: instr.value }));
-    toast("Istruzioni salvate come tuo predefinito."); promptState();
+    toast("Indicazioni salvate come tuo predefinito."); promptState();
   }));
   $("#a-reset").addEventListener("click", async e => {
-    const ok = await confirmDialog({ title: "Ripristinare le istruzioni di fabbrica?", ok: "Ripristina",
+    const ok = await confirmDialog({ title: "Ripristinare le indicazioni di fabbrica?", ok: "Ripristina",
       html: "<p>Il tuo predefinito personale (se c'è) viene cancellato e la casella torna al testo originale.</p>" });
     if (!ok) return;
     await busy(e.target, async () => {
@@ -633,7 +652,7 @@ async function renderCatalog(id) {
       instr.value = promptInfo.factory; drafts.clear(instrKey); promptState();
     });
   });
-  const requestBody = () => ({ pages: pagesInput.value, whole: whole.checked, instructions: instr.value,
+  const requestBody = () => ({ pages: formatPages([...toSend]), whole: whole.checked, instructions: instr.value,
                                include_card: $("#a-card").checked });
   $("#a-preview").addEventListener("click", e => busy(e.target, async () => {
     const p = await api("POST", `/api/library/catalogs/${enc(c.id)}/analysis/preview`, requestBody());
@@ -659,11 +678,19 @@ async function renderCatalog(id) {
 
   // --- proposte (analisi salvate)
   const analyses = await api("GET", `/api/library/catalogs/${enc(c.id)}/analyses`);
-  const STATUS = { nuova: "da rivedere", applicata: "applicata", scartata: "scartata" };
+  const STATUS = { nuova: "da rivedere", applicata: "applicata", scartata: "scartata",
+                   non_valida: `<span class="badge error">non valida</span>` };
   $("#a-history").innerHTML = analyses.length ? `<details><summary class="small">Analisi archiviate (${analyses.length})</summary>
     <ul class="small" style="margin:.25rem 0">${analyses.map(a => `<li>${esc(a.created_at.replace("T", " ").slice(0, 16))} ·
       ${esc(a.pages_text)} · ${STATUS[a.status] || esc(a.status)}
-      <a href="#" data-review="${esc(a.id)}">rivedi</a></li>`).join("")}</ul></details>` : "";
+      ${a.status === "non_valida" ? `<a href="#" data-raw="${esc(a.id)}">vedi la risposta</a>`
+        : `<a href="#" data-review="${esc(a.id)}">rivedi</a>`}</li>`).join("")}</ul></details>` : "";
+  $$("[data-raw]").forEach(link => link.addEventListener("click", e => {
+    e.preventDefault();
+    const a = analyses.find(x => x.id === link.dataset.raw);
+    showText("Risposta non valida (non usata)", JSON.stringify(a.raw, null, 2),
+      `Problemi di formato: ${a.problems.join("; ")}`);
+  }));
   const showProposal = a => {
     const r = a.result;
     const has = { tags: new Set(c.tags.map(t => t.toLowerCase())), fields: Object.fromEntries(c.fields.map(f => [f.name.toLowerCase(), f])) };

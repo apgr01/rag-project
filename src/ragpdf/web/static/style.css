@@ -144,6 +144,11 @@ details summary { cursor: pointer; color: var(--accent); }
 .nav a { padding: .2rem .6rem; border-radius: 6px; text-decoration: none; color: var(--muted); }
 .nav a.active { background: var(--accent-soft); color: var(--text); font-weight: 600; }
 button.small { padding: .2rem .55rem; font-size: .85rem; }
+a.linkbtn { display: inline-block; text-decoration: none; border: 1px solid var(--accent); border-radius: 6px;
+            padding: .45rem .9rem; color: #fff; background: var(--accent); white-space: nowrap; }
+a.linkbtn.secondary { background: transparent; color: var(--accent); }
+a.linkbtn.small { padding: .2rem .55rem; font-size: .85rem; }
+.thumbs.off { opacity: .45; }
 
 /* biblioteca */
 .lib { display: grid; grid-template-columns: minmax(180px, 250px) minmax(0, 1fr); gap: 16px; align-items: start; }
@@ -184,8 +189,6 @@ button.small { padding: .2rem .55rem; font-size: .85rem; }
 .pick-list { max-height: 50vh; overflow: auto; margin-top: .5rem; }
 
 /* analisi con Gemini */
-.thumb.tosend::before { content: "\2709"; position: absolute; top: 3px; left: 4px; font-size: .8rem; line-height: 1;
-         padding: 2px 4px; border-radius: 4px; background: #7b68d9; color: #fff; }
 .proposal { border-color: #9b72cb; box-shadow: 0 0 0 1px #9b72cb33; }
 .proposal h4 { margin: 1rem 0 .35rem; font-size: .95rem; }
 .proposal blockquote { margin: 0 0 .35rem; padding: .5rem .75rem; border-left: 3px solid #9b72cb; background: var(--bg);

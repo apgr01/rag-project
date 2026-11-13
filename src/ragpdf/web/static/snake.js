@@ -107,9 +107,12 @@
       const k = e.key.toLowerCase();
       const map = { arrowup: [0, -1], w: [0, -1], arrowdown: [0, 1], s: [0, 1],
                     arrowleft: [-1, 0], a: [-1, 0], arrowright: [1, 0], d: [1, 0] };
-      if (map[k]) { e.preventDefault(); turn(...map[k]); }
-      else if (k === " " && started && state === "play") {
-        e.preventDefault();
+      // finché il gioco è visibile i suoi tasti sono suoi: non arrivano al resto della pagina
+      // (es. le frecce del visualizzatore delle pagine)
+      if (map[k]) { e.preventDefault(); e.stopPropagation(); turn(...map[k]); }
+      else if (k === " ") {
+        e.preventDefault(); e.stopPropagation();
+        if (!(started && state === "play")) return;
         paused = !paused;
         message(paused ? `<div><b>Pausa</b><br>Gemini continua a lavorare per te.<br><small>Spazio per riprendere</small></div>` : "");
       }
@@ -127,7 +130,8 @@
       e.preventDefault();
     }
 
-    window.addEventListener("keydown", onKey);
+    // fase di cattura: il gioco riceve i tasti prima di qualsiasi altro gestore della pagina
+    window.addEventListener("keydown", onKey, true);
     canvas.addEventListener("touchstart", onTouchStart, { passive: true });
     canvas.addEventListener("touchend", onTouchEnd);
     overlay.addEventListener("click", () => { if (!started) turn(1, 0); });
@@ -386,7 +390,7 @@
     function destroy() {
       cancelAnimationFrame(frame);
       clearTimeout(fallback);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("resize", resize);
       container.innerHTML = "";
     }

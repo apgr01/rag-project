@@ -163,9 +163,14 @@ data/library/folders.yaml           cartelle (anche vuote)
   intero) e prompt in due parti, le **istruzioni** modificabili dall'utente
   (`configs/prompts/library_analyze.md`, personali in `data/library/analysis_prompt.md`) e la
   **cornice** fissa (`library_analyze_frame.md`: corrispondenza delle pagine, tag disponibili,
-  scheda attuale, regole sui numeri di pagina), così modificare le istruzioni non rompe il
-  formato. Risposta a schema rigido (tag delle collezioni come `enum`), poi ricontrollata:
-  intervalli fuori dal documento o tag sconosciuti vengono scartati e segnalati. Il risultato
+  scheda attuale, regole sui numeri di pagina, formato della risposta) che viene *dopo* le
+  indicazioni, le racchiude tra delimitatori e dichiara di prevalere su di esse: modificare le
+  indicazioni non può cambiare il formato. Risposta a schema rigido (`response_json_schema`,
+  tag delle collezioni come `enum`), poi **ricontrollata in modo rigoroso** con modelli Pydantic
+  (`extra="forbid"`, `strict=True`): un campo mancante o in più, un tipo sbagliato o un tag
+  inesistente rendono la risposta *non valida* (`InvalidAnswerError`), archiviata con la
+  risposta originale ma mai applicata. Con la struttura a posto, le singole voci inutilizzabili
+  (pagine fuori dal documento, campi doppi) vengono scartate e segnalate. Il risultato
   è una proposta salvata in `documents/<id>/analyses/`, applicata solo per le voci scelte e
   senza doppioni. Le richieste troppo pesanti (400/413 con messaggi sui limiti) diventano
   `RequestTooLargeError`, senza nuovi tentativi.

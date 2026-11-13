@@ -25,7 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from ragpdf.core.documents import Document
 from ragpdf.core.fileio import atomic_write_text, utc_now, write_json
@@ -130,6 +130,11 @@ def describe_card(card: LibraryCard) -> str:
     return "\n".join(lines)
 
 
+def clean_instructions(text: str) -> str:
+    """Le indicazioni dell'utente, senza i delimitatori del prompt (non si può "uscire" dal blocco)."""
+    return text.replace("«««", "").replace("»»»", "").strip()
+
+
 def build_prompt(doc: Document, card: LibraryCard, instructions: str, pages: list[int] | None,
                  include_card: bool = True) -> str:
     if pages is None:
@@ -139,7 +144,7 @@ def build_prompt(doc: Document, card: LibraryCard, instructions: str, pages: lis
     tags = "\n".join(f"- `{k}`: {label} — {help_}" for k, (label, help_) in PAGE_TAGS.items())
     return render_prompt(
         load_prompt("library_analyze_frame"),
-        instructions=instructions.strip() or PromptStore.factory(),
+        instructions=clean_instructions(instructions) or PromptStore.factory(),
         title=doc.info.title, file_name=doc.info.source_filename, page_count=doc.info.page_count,
         pages_note=note, page_tags=tags,
         current_card=describe_card(card) if include_card else "",
@@ -186,42 +191,125 @@ def attachment_size(doc: Document, pages: list[int] | None) -> int:
 
 
 # ---------------------------------------------------------------------------------- risposta
+MAX_INSTRUCTIONS_CHARS = 8000
+
+
+class InvalidAnswerError(AnalysisError):
+    """La risposta di Gemini non rispetta la struttura richiesta: non va usata."""
+
+    def __init__(self, errors: list[str]):
+        self.errors = errors
+        super().__init__("La risposta di Gemini non rispetta il formato richiesto ed è stata scartata "
+                         f"({'; '.join(errors[:3])}{' ...' if len(errors) > 3 else ''}). "
+                         "Resta in archivio come 'non valida': riprova, eventualmente con meno pagine "
+                         "o con istruzioni più semplici.")
+
+
+class _Strict(BaseModel):
+    # rigoroso: niente campi in più, niente conversioni di tipo ("3" non è un numero)
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class _AnswerField(_Strict):
+    name: str
+    description: str
+
+
+class _AnswerCollection(_Strict):
+    start: int
+    end: int
+    tag: str
+    comment: str
+    deduced: bool
+
+    @field_validator("tag")
+    @classmethod
+    def _known_tag(cls, v: str) -> str:
+        if v not in PAGE_TAGS:
+            raise ValueError(f"tag di pagina sconosciuto '{v}'")
+        return v
+
+
+class _Answer(_Strict):
+    """La struttura esatta della risposta (la stessa di ANALYSIS_SCHEMA)."""
+
+    description: str
+    tags: list[str]
+    fields: list[_AnswerField]
+    collections: list[_AnswerCollection]
+    notes: str
+
+
+_ERROR_TEXT = {
+    "missing": "campo mancante",
+    "extra_forbidden": "campo non previsto",
+    "string_type": "deve essere un testo",
+    "int_type": "deve essere un numero intero",
+    "bool_type": "deve essere vero o falso",
+    "list_type": "deve essere un elenco",
+    "dict_type": "deve essere un oggetto",
+    "model_type": "deve essere un oggetto",
+}
+
+
+def _describe_errors(error: ValidationError) -> list[str]:
+    """Errori di struttura in italiano, con la posizione (es. ``collections.0.start: ...``)."""
+    out = []
+    for e in error.errors():
+        where = ".".join(str(x) for x in e.get("loc", ())) or "risposta"
+        kind = e.get("type", "")
+        if kind == "value_error":
+            text = str(e.get("ctx", {}).get("error", e.get("msg", "non valido")))
+        else:
+            text = _ERROR_TEXT.get(kind, e.get("msg", "non valido"))
+        out.append(f"{where}: {text}")
+    return out
+
+
 def validate(raw: Any, page_count: int) -> tuple[dict[str, Any], list[str]]:
-    """Ripulisce la risposta di Gemini; restituisce ``(proposta, problemi scartati)``."""
+    """Controlla la risposta di Gemini; restituisce ``(proposta, voci scartate)``.
+
+    1. **Struttura** (rigorosa): deve essere esattamente l'oggetto richiesto, con tutti i campi,
+       i tipi giusti, nessun campo in più e solo tag di pagina esistenti. Altrimenti
+       :class:`InvalidAnswerError`: la risposta non viene usata.
+    2. **Contenuto**: con la struttura a posto, le singole voci non utilizzabili (pagine fuori dal
+       documento, campi senza nome o doppi) vengono scartate e segnalate.
+    """
+    if not isinstance(raw, dict):
+        raise InvalidAnswerError([f"atteso un oggetto JSON, ricevuto {type(raw).__name__}"])
+    try:
+        answer = _Answer.model_validate(raw)
+    except ValidationError as e:
+        raise InvalidAnswerError(_describe_errors(e)) from e
+
     problems: list[str] = []
-    raw = raw if isinstance(raw, dict) else {}
     fields: list[dict[str, str]] = []
     seen: set[str] = set()
-    for f in raw.get("fields") or []:
-        name = " ".join(str((f or {}).get("name", "")).split())
-        if not name or name.casefold() in seen:
+    for f in answer.fields:
+        name = " ".join(f.name.split())
+        if not name:
+            problems.append("campo senza nome, scartato")
+            continue
+        if name.casefold() in seen:
+            problems.append(f"campo '{name}' ripetuto, tenuto una volta")
             continue
         seen.add(name.casefold())
-        fields.append({"name": name, "description": " ".join(str(f.get("description", "")).split())})
+        fields.append({"name": name, "description": " ".join(f.description.split())})
     collections = []
-    for c in raw.get("collections") or []:
-        try:
-            start, end, tag = int(c["start"]), int(c["end"]), str(c["tag"])
-        except (KeyError, TypeError, ValueError):
-            problems.append(f"collezione incompleta scartata: {c}")
+    for c in answer.collections:
+        first, last = min(c.start, c.end), max(c.start, c.end)
+        if first < 1 or last > page_count:
+            problems.append(f"pagine {first}-{last} fuori dal documento (1-{page_count}), scartata")
             continue
-        start, end = min(start, end), max(start, end)
-        if tag not in PAGE_TAGS:
-            problems.append(f"pagine {start}-{end}: tag sconosciuto '{tag}', scartata")
-            continue
-        if start < 1 or end > page_count:
-            problems.append(f"pagine {start}-{end} fuori dal documento (1-{page_count}), scartata")
-            continue
-        collections.append({"start": start, "end": end, "tag": tag,
-                            "comment": " ".join(str(c.get("comment", "")).split()),
-                            "deduced": bool(c.get("deduced"))})
+        collections.append({"start": first, "end": last, "tag": c.tag,
+                            "comment": " ".join(c.comment.split()), "deduced": c.deduced})
     collections.sort(key=lambda c: (c["start"], c["end"]))
     result = {
-        "description": str(raw.get("description") or "").strip(),
-        "tags": normalize_tags([str(t).lower() for t in raw.get("tags") or []]),
+        "description": answer.description.strip(),
+        "tags": normalize_tags([t.lower() for t in answer.tags]),
         "fields": fields,
         "collections": collections,
-        "notes": str(raw.get("notes") or "").strip(),
+        "notes": answer.notes.strip(),
     }
     return result, problems
 
@@ -235,8 +323,9 @@ class Analysis(BaseModel):
     include_card: bool = True
     result: dict[str, Any] = Field(default_factory=dict)
     problems: list[str] = Field(default_factory=list)
-    status: str = "nuova"                    # nuova | applicata | scartata
+    status: str = "nuova"                    # nuova | applicata | scartata | non_valida
     applied_at: str | None = None
+    raw: Any = None                          # risposta originale, conservata solo se non valida
 
     @property
     def pages_text(self) -> str:
@@ -271,6 +360,9 @@ def run_analysis(doc: Document, library: Library, client: LLMClient, instruction
                  progress: Callable[[str], None] | None = None) -> Analysis:
     """Invia a Gemini, controlla la risposta e la salva come proposta (``status = nuova``)."""
     pages = check_pages(doc, pages)
+    if len(instructions) > MAX_INSTRUCTIONS_CHARS:
+        raise AnalysisError(f"Le istruzioni sono troppo lunghe ({len(instructions)} caratteri, massimo "
+                            f"{MAX_INSTRUCTIONS_CHARS}).")
     card = library.card(doc)
     prompt = build_prompt(doc, card, instructions, pages, include_card)
     with tempfile.TemporaryDirectory() as tmp:
@@ -278,14 +370,19 @@ def run_analysis(doc: Document, library: Library, client: LLMClient, instruction
         if progress:
             progress("Gemini sta leggendo il catalogo…")
         raw = client.generate_json(prompt, ANALYSIS_SCHEMA, pdf=pdf)
-    result, problems = validate(raw, doc.info.page_count)
     stamp = utc_now().replace(":", "").replace("-", "").replace("+0000", "")
     existing = {a.id for a in list_analyses(doc)}
     analysis_id, n = stamp, 2
     while analysis_id in existing:
         analysis_id, n = f"{stamp}-{n}", n + 1
-    analysis = Analysis(id=analysis_id, pages=pages, instructions=instructions, include_card=include_card,
-                        result=result, problems=problems)
+    base = {"id": analysis_id, "pages": pages, "instructions": instructions, "include_card": include_card}
+    try:
+        result, problems = validate(raw, doc.info.page_count)
+    except InvalidAnswerError as e:
+        # una richiesta pagata non si butta: la risposta resta consultabile, ma non si usa
+        save_analysis(doc, Analysis(**base, status="non_valida", problems=e.errors, raw=raw))
+        raise
+    analysis = Analysis(**base, result=result, problems=problems)
     save_analysis(doc, analysis)
     return analysis
 
@@ -303,6 +400,9 @@ class Selection(BaseModel):
 
 def apply_analysis(doc: Document, library: Library, analysis: Analysis, selection: Selection) -> LibraryCard:
     """Applica alla scheda le voci scelte; i doppioni vengono saltati."""
+    if analysis.status == "non_valida":
+        raise AnalysisError("Questa analisi non è valida (la risposta non rispettava il formato): "
+                            "non si può applicare.")
     result = analysis.result
     card = library.card(doc)
 

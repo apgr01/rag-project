@@ -89,20 +89,25 @@ La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **carte
    - **Scheda**: titolo, cartella, tag e una descrizione libera di cosa contiene e com'è fatto.
    - **Campi da indicizzare**: le colonne che vuoi nel CSV, con una breve descrizione
      (es. `alesaggio` → "diametro del cilindro in mm"). Pagina e file li aggiunge il programma.
-   - **Pagine e collezioni**: sfoglia le miniature (frecce ← → per cambiare pagina); clic per
-     vedere una pagina, **Maiusc+clic** per selezionare un intervallo, poi scegli il tag e
+   - **Pagine e collezioni**: sfoglia le miniature (frecce ← → per cambiare pagina; mentre giochi
+     a Snake le frecce sono del gioco); *Apri il PDF ↗* apre il PDF originale in una nuova
+     scheda alla pagina che stai guardando; clic per vedere una pagina, **Maiusc+clic** per selezionare un intervallo, poi scegli il tag e
      aggiungi la collezione (es. 1-2 *Copertina*, 3-4 *Indice*, 9-250 *Da indicizzare*,
      12-13 *Pagina d'esempio*). Una pagina può stare in più collezioni.
 5. **Fatti aiutare da Gemini** (pannello *✨ Analisi con Gemini* nella scheda del catalogo):
-   - scegli le **pagine da inviare**: scrivile (`1-6, 20, 45-46`), oppure selezionale nel
-     visualizzatore e premi *+ Selezione del visualizzatore*; *Selezione rapida* mette le prime
-     6 pagine più 8 distribuite; in alternativa spunta *Invia tutto il PDF*. Le pagine scelte
-     hanno il simbolo ✉ nelle miniature. Di solito bastano copertina, indice, legenda e
-     qualche pagina tipo: dall'indice Gemini deduce anche le parti che non vede;
-   - le **istruzioni** sono modificabili: *Salva come mio predefinito* le ricorda per le
-     prossime analisi, *Ripristina quello di fabbrica* torna all'originale. Pagine inviate, tag
-     disponibili e formato della risposta li aggiunge il programma (*Vedi il prompt* mostra il
-     testo esatto);
+   - scegli le **pagine da inviare** sulle miniature, come nella configurazione guidata: clic
+     per selezionare, Maiusc+clic per un intervallo, doppio clic per ingrandire; oppure
+     scrivile (`1-6, 20, 45-46`). *Selezione rapida* mette le prime 6 pagine più 8
+     distribuite; in alternativa spunta *Invia tutto il PDF*. Di solito bastano copertina,
+     indice, legenda e qualche pagina tipo: dall'indice Gemini deduce anche le parti che non
+     vede;
+   - le **indicazioni** dicono a Gemini *cosa* cercare e sono modificabili: *Salva come mio
+     predefinito* le ricorda per le prossime analisi, *Ripristina quello di fabbrica* torna
+     all'originale. Il **formato** della risposta invece è fisso: lo aggiunge il programma dopo
+     le tue indicazioni, con la regola che prevale su qualsiasi richiesta diversa (*Vedi il
+     prompt* mostra il testo esatto). Ogni risposta viene controllata: se manca un campo, ce n'è
+     uno in più, un tipo è sbagliato o un tag non esiste, la risposta è **non valida**, non
+     tocca la scheda e resta in archivio (*vedi la risposta*) per capire cosa è successo;
    - con *Tieni conto della scheda attuale* Gemini completa e corregge quello che hai già
      scritto;
    - la risposta diventa una **proposta da rivedere**: scegli la descrizione (non usare,

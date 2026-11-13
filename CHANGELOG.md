@@ -15,6 +15,8 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   rapida o PDF intero; istruzioni modificabili con predefinito personale; proposta di
   descrizione, tag, campi e collezioni (anche dedotte dall'indice) da rivedere e applicare in
   parte; archivio delle analisi; richieste troppo pesanti riconosciute e spiegate.
+- Pulsante **Apri il PDF ↗** nel visualizzatore della scheda e nella finestra della pagina
+  ingrandita: apre il PDF originale in una nuova scheda, alla pagina mostrata.
 - Progetto dalla biblioteca: pagine da indicizzare, pagine d'esempio, campi e descrizioni
   precompilano progetto e configurazione guidata. Nei progetti, *Scegli dalla biblioteca…*.
 
@@ -23,6 +25,11 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   non cancella più il PDF né i suoi risultati. `ragpdf remove` rifiuta un PDF usato da un
   progetto.
 - L'attributo `hidden` nasconde sempre gli elementi dell'interfaccia.
+- Analisi con Gemini: pagine scelte sulle miniature come nella configurazione guidata; le
+  indicazioni dell'utente non possono più alterare il formato della risposta, che viene
+  controllato in modo rigoroso (una risposta fuori formato è *non valida* e non si usa).
+- Gemini Snake: finché il gioco è visibile frecce, WASD e spazio sono solo del gioco (prima le
+  frecce sfogliavano anche le pagine del visualizzatore).
 
 ## [0.2.0] — 2026-11-12
 

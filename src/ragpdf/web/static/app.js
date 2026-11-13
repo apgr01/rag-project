@@ -88,6 +88,7 @@ function showText(title, text, note = "") {
 function showPage(docId, page, title = "") {
   $("#image-title").textContent = `${title ? title + " — " : ""}pagina ${page}`;
   $("#image-body").src = `/api/documents/${enc(docId)}/page/${page}`;
+  $("#image-pdf").href = `/api/documents/${enc(docId)}/pdf#page=${page}`;
   $("#image-dialog").showModal();
 }
 
