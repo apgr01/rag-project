@@ -88,14 +88,18 @@ def quick_pages(page_count: int) -> list[int]:
 
 # ---------------------------------------------------------------------------------- prompt
 class PromptStore:
-    """Istruzioni dell'analisi: predefinite di fabbrica o personali dell'utente."""
+    """Indicazioni per Gemini modificabili dall'utente: di fabbrica o personali.
 
-    def __init__(self, workspace: Workspace):
-        self.path = workspace.root / "library" / "analysis_prompt.md"
+    Di default quelle dell'analisi; il raggruppamento usa lo stesso meccanismo con altri file.
+    """
 
-    @staticmethod
-    def factory() -> str:
-        return load_prompt("library_analyze").strip()
+    def __init__(self, workspace: Workspace, prompt: str = "library_analyze",
+                 filename: str = "analysis_prompt.md"):
+        self.prompt = prompt
+        self.path = workspace.root / "library" / filename
+
+    def factory(self) -> str:
+        return load_prompt(self.prompt).strip()
 
     def custom(self) -> str | None:
         return self.path.read_text(encoding="utf-8").strip() if self.path.exists() else None
@@ -144,7 +148,7 @@ def build_prompt(doc: Document, card: LibraryCard, instructions: str, pages: lis
     tags = "\n".join(f"- `{k}`: {label} — {help_}" for k, (label, help_) in PAGE_TAGS.items())
     return render_prompt(
         load_prompt("library_analyze_frame"),
-        instructions=clean_instructions(instructions) or PromptStore.factory(),
+        instructions=clean_instructions(instructions) or load_prompt("library_analyze").strip(),
         title=doc.info.title, file_name=doc.info.source_filename, page_count=doc.info.page_count,
         pages_note=note, page_tags=tags,
         current_card=describe_card(card) if include_card else "",

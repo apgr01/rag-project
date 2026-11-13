@@ -52,6 +52,8 @@ class ProjectInfo(BaseModel):
     primer: str | None = None
     spec: str | None = None
     settings: dict[str, DocumentSettings] = Field(default_factory=dict)
+    # colonne proposte (es. dal raggruppamento della biblioteca): {"name": ..., "description": ...}
+    fields: list[dict[str, str]] = Field(default_factory=list)
     created_at: str = Field(default_factory=utc_now)
 
 

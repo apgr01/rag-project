@@ -87,7 +87,7 @@ def test_prompt_has_frame_mapping_and_card(setup):
     assert "`da-indicizzare`" in prompt and "Pagine 1: copertina — fronte" in prompt
     whole = build_prompt(doc, card, "", None, include_card=False)
     assert "documento COMPLETO (12 pagine)" in whole and "Scheda attuale" not in whole
-    assert PromptStore.factory()[:40] in whole
+    assert PromptStore(app.workspace).factory()[:40] in whole
 
 
 def test_validate_cleans_the_answer():
