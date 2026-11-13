@@ -193,4 +193,6 @@ a.linkbtn.small { padding: .2rem .55rem; font-size: .85rem; }
 .proposal h4 { margin: 1rem 0 .35rem; font-size: .95rem; }
 .proposal blockquote { margin: 0 0 .35rem; padding: .5rem .75rem; border-left: 3px solid #9b72cb; background: var(--bg);
          border-radius: 0 6px 6px 0; white-space: pre-wrap; }
+.group blockquote { margin: .5rem 0; padding: .4rem .75rem; border-left: 3px solid #9b72cb; background: var(--bg);
+         border-radius: 0 6px 6px 0; }
 .proposal label.chip { display: inline-flex; gap: .3rem; align-items: center; font-weight: normal; margin: 0; }

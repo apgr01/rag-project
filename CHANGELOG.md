@@ -15,6 +15,12 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   rapida o PDF intero; istruzioni modificabili con predefinito personale; proposta di
   descrizione, tag, campi e collezioni (anche dedotte dall'indice) da rivedere e applicare in
   parte; archivio delle analisi; richieste troppo pesanti riconosciute e spiegate.
+- **Raggruppamento proposto da Gemini**: dai cataloghi selezionati nella biblioteca, una sola
+  richiesta con le loro schede (e, a scelta, una pagina d'esempio ciascuno); report con gruppi
+  (nome, commento, tag comuni, colonne unificate) e non accorpabili, cataloghi spostabili tra
+  i gruppi, tag da assegnare e progetti da creare; le colonne unificate diventano l'obiettivo
+  proposto del progetto. Archivio dei raggruppamenti; risposte fuori formato scartate come
+  non valide.
 - Pulsante **Apri il PDF ↗** nel visualizzatore della scheda e nella finestra della pagina
   ingrandita: apre il PDF originale in una nuova scheda, alla pagina mostrata.
 - Progetto dalla biblioteca: pagine da indicizzare, pagine d'esempio, campi e descrizioni

@@ -122,6 +122,8 @@ def test_run_archive_and_move(setup):
     assert g.groups[1].documents == ["delta"]
     move_document(g, "delta", "ungrouped")
     assert len(g.groups) == 1          # il gruppo rimasto vuoto sparisce
+    # tornando tra i non accorpabili riprende il motivo originale di Gemini
+    assert [u.reason for u in g.ungrouped if u.document == "delta"] == ["non classificato da Gemini"]
     with pytest.raises(GroupingError, match="non presente"):
         move_document(g, "inesistente", "ungrouped")
 

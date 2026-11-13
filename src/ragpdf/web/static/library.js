@@ -122,7 +122,8 @@ async function renderLibrary(folder) {
   view.innerHTML = `
     <h1>Biblioteca</h1>
     <p class="muted">Tutti i cataloghi, organizzati in cartelle. Apri un catalogo per descriverlo, scegliere i
-      campi da indicizzare e segnare le sue pagine; poi seleziona i cataloghi simili e crea un progetto.</p>
+      campi da indicizzare e segnare le sue pagine; poi seleziona i cataloghi simili e crea un progetto, oppure
+      fatti proporre da Gemini come raggrupparli. <a href="#/raggruppamenti">Raggruppamenti proposti →</a></p>
     <div class="lib">
       <aside class="panel lib-tree">
         <h3>Cartelle</h3>
@@ -171,6 +172,7 @@ async function renderLibrary(folder) {
             <button class="secondary small" id="sel-tag-add" type="button">Aggiungi tag</button>
             <button class="secondary small" id="sel-tag-remove" type="button">Togli tag</button>
             <button class="small" id="sel-project" type="button">Crea progetto…</button>
+            <button class="gemini small" id="sel-group" type="button" title="Gemini propone quali cataloghi accorpare in un progetto">Proponi raggruppamento…</button>
             <button class="secondary small" id="sel-delete" type="button">Elimina</button>
           </div>
           <datalist id="all-tags">${data.tags.map(t => `<option value="${esc(t.name)}">`).join("")}</datalist>
@@ -301,6 +303,11 @@ async function renderLibrary(folder) {
   });
   $("#sel-tag-add").addEventListener("click", e => retag("add", e.target));
   $("#sel-tag-remove").addEventListener("click", e => retag("remove", e.target));
+  $("#sel-group").addEventListener("click", () => {
+    if (selected.size < 2) { toast("Seleziona almeno 2 cataloghi da confrontare."); return; }
+    drafts.set("grouping-ids", JSON.stringify(ids()));
+    location.hash = "#/raggruppamenti/nuovo";
+  });
   $("#sel-project").addEventListener("click", async () => {
     const chosen = catalogs.filter(c => selected.has(c.id));
     const name = await promptDialog({ title: "Nuovo progetto con i cataloghi selezionati", label: "Nome del progetto",
@@ -593,6 +600,10 @@ async function renderCatalog(id) {
     else if (e.key === "ArrowLeft") { e.preventDefault(); show(current - 1); }
   };
   window.addEventListener("keydown", onKey);
+  // il visualizzatore è pronto subito: le attese qui sotto non devono annullare un clic già fatto
+  drawMarks();
+  select(1, 1);
+  show(1, false);
 
   // --- analisi con Gemini
   const pagesInput = $("#a-pages"), whole = $("#a-whole"), instr = $("#a-instr"), aThumbs = $("#a-thumbs");
@@ -777,9 +788,6 @@ async function renderCatalog(id) {
   const pending = analyses.find(a => a.status === "nuova");
   if (pending) showProposal(pending);
 
-  drawMarks();
-  select(1, 1);
-  show(1, false);
   refreshSend();
   promptState();
 

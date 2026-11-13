@@ -77,9 +77,10 @@ Decisi insieme e da rispettare in tutti gli step:
   proposta di descrizione, tag, campi e collezioni da accettare o correggere.
 - [ ] **B2 · Analisi in blocco** dei cataloghi selezionati (selezione rapida o PDF intero,
   stesse istruzioni), con proposte da rivedere una per una.
-- [ ] **C · Raggruppamento**: azione sui cataloghi selezionati; Gemini riceve descrizioni e
-  campi e risponde con uno schema rigido (gruppi con commento, non accorpabili); report con
-  azioni per gruppo (crea progetto, tag comuni) e per i non accorpabili.
+- [x] **C · Raggruppamento**: azione sui cataloghi selezionati; Gemini riceve le schede (e, a
+  richiesta, una pagina d'esempio ciascuno) e risponde con uno schema rigido (gruppi con
+  commento, tag comuni e colonne unificate; non accorpabili con il motivo); report in archivio
+  con spostamenti, tag e creazione dei progetti.
 
 ## Altri passi della fase 0
 

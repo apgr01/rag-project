@@ -36,6 +36,7 @@ src/ragpdf/
 ├── setup_session.py    logica della configurazione guidata (giri, anteprima, salvataggio)
 ├── primer.py           bozza del primer da PDF intero o da un estratto
 ├── library_analysis.py analisi di un catalogo della biblioteca con Gemini (proposte)
+├── library_grouping.py raggruppamento dei cataloghi in progetti, proposto da Gemini
 │
 ├── core/               infrastruttura comune alle due modalità
 │   ├── paths.py        percorsi dell'applicazione
@@ -174,6 +175,16 @@ data/library/folders.yaml           cartelle (anche vuote)
   è una proposta salvata in `documents/<id>/analyses/`, applicata solo per le voci scelte e
   senza doppioni. Le richieste troppo pesanti (400/413 con messaggi sui limiti) diventano
   `RequestTooLargeError`, senza nuovi tentativi.
+- **Raggruppamento** (`library_grouping.py`): una sola richiesta con le schede dei cataloghi
+  scelti (più, a richiesta, un'immagine a 100 DPI della pagina d'esempio di ciascuno), perché
+  i gruppi si decidono confrontando tutti insieme; per questo c'è un tetto (80 cataloghi, 40
+  con le immagini) invece di spezzare in più richieste. I cataloghi sono indicati con codici
+  `C1`, `C2`… che nello schema sono un `enum`. Stessa cornice fissa e stessa convalida
+  rigorosa dell'analisi, più i controlli sulla partizione: codici sconosciuti o un catalogo in
+  due posti rendono la risposta non valida; dimenticanze e gruppi di uno vengono corretti e
+  segnalati. Il risultato è un report in `data/library/groupings/<id>.json` su cui si lavora:
+  spostamenti, tag comuni, progetti creati (con le colonne unificate in `ProjectInfo.fields`,
+  usate come obiettivo proposto nella configurazione).
 - **Scala**: l'interfaccia riceve l'elenco completo in una risposta (centinaia di schede sono
   pochi KB) e filtra nel browser; le miniature vengono create solo quando servono e restano
   in cache (`documents/<id>/thumbs/`).

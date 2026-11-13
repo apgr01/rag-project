@@ -295,6 +295,7 @@ class Grouping(BaseModel):
     ungrouped: list[UngroupedEntry] = Field(default_factory=list)
     notes: str = ""
     problems: list[str] = Field(default_factory=list)
+    reasons: dict[str, str] = Field(default_factory=dict)   # motivo originale di chi era non accorpabile
     status: str = "valida"                    # valida | non_valida
     raw: Any = None                           # risposta originale, conservata solo se non valida
 
@@ -344,7 +345,8 @@ def run_grouping(app: App, client: LLMClient, docs: list[Document], instructions
     except InvalidAnswerError as e:
         save_grouping(app.workspace, Grouping(**base, status="non_valida", problems=e.errors, raw=raw))
         raise
-    grouping = Grouping(**base, groups=groups, ungrouped=ungrouped, notes=notes, problems=problems)
+    grouping = Grouping(**base, groups=groups, ungrouped=ungrouped, notes=notes, problems=problems,
+                        reasons={u.document: u.reason for u in ungrouped})
     save_grouping(app.workspace, grouping)
     return grouping
 
@@ -364,7 +366,6 @@ def _group(grouping: Grouping, index: int) -> GroupEntry:
 def move_document(grouping: Grouping, doc_id: str, target: str) -> None:
     """Sposta un catalogo in un altro gruppo (indice), tra i non accorpabili o in un nuovo gruppo."""
     _usable(grouping)
-    reason = ""
     for g in grouping.groups:
         if doc_id in g.documents:
             if g.project_id:
@@ -377,9 +378,10 @@ def move_document(grouping: Grouping, doc_id: str, target: str) -> None:
         if entry is None:
             raise GroupingError("Catalogo non presente in questo raggruppamento.")
         grouping.ungrouped.remove(entry)
-        reason = entry.reason
+        grouping.reasons.setdefault(doc_id, entry.reason)
     if target == UNGROUPED:
-        grouping.ungrouped.append(UngroupedEntry(document=doc_id, reason=reason or "spostato a mano"))
+        reason = grouping.reasons.get(doc_id) or "spostato a mano"
+        grouping.ungrouped.append(UngroupedEntry(document=doc_id, reason=reason))
     elif target == NEW_GROUP:
         grouping.groups.append(GroupEntry(name=f"Nuovo gruppo {len(grouping.groups) + 1}", documents=[doc_id],
                                           comment="creato a mano"))

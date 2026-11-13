@@ -121,9 +121,30 @@ La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **carte
    Se Gemini rifiuta la richiesta perché troppo pesante (troppe pagine o file troppo
    grande), il messaggio lo dice: scegli meno pagine. Prima dell'invio il programma blocca i
    PDF oltre 1000 pagine o circa 50 MB e avvisa per gli allegati pesanti.
-6. **Crea il progetto**: seleziona i cataloghi simili e premi *Crea progetto…*. Le pagine *da
-   indicizzare* diventano le pagine del progetto, le *pagine d'esempio* sono già scelte nella
-   configurazione guidata e campi e descrizioni compongono l'obiettivo proposto (modificabile).
+6. **Fatti proporre i raggruppamenti**: seleziona i cataloghi (anche da cartelle diverse, per
+   esempio filtrando per tag) e premi *✨ Proponi raggruppamento…*:
+   - nella pagina che si apre controlli i cataloghi (puoi toglierne qualcuno), vedi quali non
+     sono ancora studiati e, se vuoi, alleghi **una pagina d'esempio per catalogo** come
+     immagine (la prima *pagina d'esempio* segnata, altrimenti la prima *da indicizzare*);
+   - le **indicazioni** dicono a Gemini come valutare i cataloghi e sono modificabili come
+     nell'analisi; il formato della risposta è fisso e controllato;
+   - parte **una sola richiesta** con le schede (al massimo 80 cataloghi, 40 con le
+     immagini). Gemini usa codici C1, C2… e deve mettere ogni catalogo in un solo posto: se
+     sbaglia il formato, cita cataloghi inesistenti o mette un catalogo in due gruppi, la
+     risposta è *non valida* e non si usa; i cataloghi che dimentica e i gruppi di uno solo
+     finiscono tra i non accorpabili, con una nota;
+   - il **report** mostra i gruppi (nome del progetto, commento, colonne unificate, tag comuni)
+     e i non accorpabili con il motivo. Per ogni gruppo puoi cambiare il nome, **spostare** un
+     catalogo in un altro gruppo, tra i non accorpabili o in un nuovo gruppo, **assegnare i
+     tag** comuni e **creare il progetto**: le colonne unificate diventano l'obiettivo
+     proposto nella sua configurazione. Ai non accorpabili assegni un tag a tutti, ad alcuni
+     o a uno solo;
+   - i report restano in *Raggruppamenti proposti* (link in cima alla biblioteca): puoi
+     riaprirli e creare dopo i progetti che mancano.
+7. **Oppure crea il progetto a mano**: seleziona i cataloghi simili e premi *Crea progetto…*. Le
+   pagine *da indicizzare* diventano le pagine del progetto, le *pagine d'esempio* sono già
+   scelte nella configurazione guidata e campi e descrizioni compongono l'obiettivo proposto
+   (modificabile).
 
 Dalla scheda *Documenti* di un progetto puoi anche aggiungere PDF con **Scegli dalla
 biblioteca…**. Togliere un PDF da un progetto o eliminare un progetto **non** cancella il PDF:

@@ -205,8 +205,8 @@ class InvalidAnswerError(AnalysisError):
         self.errors = errors
         super().__init__("La risposta di Gemini non rispetta il formato richiesto ed è stata scartata "
                          f"({'; '.join(errors[:3])}{' ...' if len(errors) > 3 else ''}). "
-                         "Resta in archivio come 'non valida': riprova, eventualmente con meno pagine "
-                         "o con istruzioni più semplici.")
+                         "Resta in archivio come 'non valida': riprova, eventualmente con una richiesta "
+                         "più piccola (meno pagine o meno cataloghi) o con indicazioni più semplici.")
 
 
 class _Strict(BaseModel):
