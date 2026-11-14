@@ -31,6 +31,9 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   con i dati). Dal report, modificabile, nasce il progetto con le impostazioni globali, le
   pagine dalle sezioni scelte e il CSV d'esempio come riferimento. Risposte fuori formato
   scartate come non valide.
+- Nella scheda del PDF, **Nei progetti**: i progetti che lo usano con le sue pagine da
+  indicizzare e lo stato della sua indicizzazione in ciascuno (pagine fatte e fallite, righe,
+  errori, avvisi, regole cambiate), con il CSV di quel PDF da scaricare.
 - Pulsante **Apri il PDF ↗** nel visualizzatore della scheda e nella finestra della pagina
   ingrandita: apre il PDF originale in una nuova scheda, alla pagina mostrata.
 - Progetto dalla biblioteca: pagine da indicizzare, pagine d'esempio, campi e descrizioni
@@ -41,6 +44,8 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   non cancella più il PDF né i suoi risultati. `ragpdf remove` rifiuta un PDF usato da un
   progetto.
 - L'attributo `hidden` nasconde sempre gli elementi dell'interfaccia.
+- Salvando la configurazione guidata (o cambiando le note con `ragpdf project note`) le pagine
+  di un PDF restano collegate alle collezioni della biblioteca da cui vengono.
 - Scheda del catalogo: scrivendo l'intervallo di una nuova collezione i campi *da* e *a* non
   vengono più riscritti mentre si digita (prima potevano produrre un intervallo sbagliato).
 - Biblioteca: i "campi" diventano **dati presenti**, un inventario dei dati indicizzabili senza

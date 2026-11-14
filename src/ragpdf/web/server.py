@@ -608,6 +608,16 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             documents=body.get("documents") if isinstance(body.get("documents"), list) else [])
         return {"project": project_summary(project), "run": run_view(run)}
 
+    @api.get("/api/library/catalogs/{doc_id}/projects")
+    def catalog_projects(doc_id: str):
+        """I progetti che usano il PDF e lo stato della sua indicizzazione in ciascuno."""
+        doc = app.documents.get(doc_id)
+        items = app.document_in_projects(doc)
+        for item in items:
+            job = jobs.active_for(item["id"])
+            item["job"] = job.label if job else None
+        return items
+
     @api.delete("/api/library/catalogs/{doc_id}")
     def library_delete(doc_id: str):
         doc = app.documents.get(doc_id)

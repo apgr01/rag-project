@@ -5,8 +5,8 @@ preciso di ciascuna. Serve a non confondere cose che si somigliano (tag, note, p
 
 **Legenda dello stato**
 
-- ✅ **esiste oggi** e funziona così;
-- 🔜 **deciso**, in lavorazione (vedi *Fase 1* nella [roadmap](ROADMAP.md)).
+- ✅ **esiste oggi** e funziona così (tutte le voci, al termine della fase 1 della
+  [roadmap](ROADMAP.md)).
 
 ---
 
@@ -237,8 +237,8 @@ pagine fatte non si rifanno.
 - **anomalie**: righe con problemi (colonne obbligatorie vuote, formati non rispettati...);
 - **pagina di ricerca**: un file HTML autonomo per cercare nel CSV unico.
 
-🔜 Nella scheda di ogni PDF si vedrà in quali progetti è usato e come procede la sua
-indicizzazione.
+Nella scheda di ogni PDF, **Nei progetti**, si vede in quali progetti è usato e come procede la
+sua indicizzazione in ciascuno, con il CSV di quel PDF da scaricare.
 
 ---
 

@@ -742,9 +742,12 @@ def cmd_project_note(app: App, args: argparse.Namespace) -> int:
     if args.clear:
         settings = DocumentSettings()
     else:
+        pages_changed = args.pages is not None
         settings = DocumentSettings(
             notes=args.notes if args.notes is not None else current.notes,
-            pages=(args.pages or None) if args.pages is not None else current.pages,
+            pages=(args.pages or None) if pages_changed else current.pages,
+            # pagine scritte a mano: non vengono più dalle collezioni della biblioteca
+            collections=[] if pages_changed else current.collections,
         )
     if settings.pages:
         from ragpdf.core.render import parse_page_ranges

@@ -203,6 +203,43 @@ class App:
         project.save()
         return updated
 
+    def document_in_projects(self, doc: Document) -> list[dict]:
+        """In quali progetti è usato un PDF e a che punto è la sua indicizzazione in ciascuno.
+
+        Per i progetti configurati rigenera anche il CSV di quel PDF (dai risultati salvati, senza
+        chiamare Gemini), così si può scaricare dalla scheda della biblioteca.
+        """
+        out = []
+        for project in self.projects.containing(doc.id):
+            settings = project.settings_for(doc.id)
+            info: dict = {
+                "id": project.id, "name": project.info.name, "configured": bool(project.info.spec),
+                "pages": settings.pages, "from_library": bool(settings.collections),
+                "to_index": 0, "done": 0, "failed": 0, "rows": None, "errors": 0, "warnings": 0,
+                "stale": False, "csv": False, "problem": None,
+            }
+            out.append(info)
+            if not project.info.spec:
+                continue
+            try:
+                primer = self.project_primer(project)
+                spec = self.document_spec(project, doc)
+            except (SpecError, FileNotFoundError, PrimerMissingError) as e:
+                info["problem"] = str(e)
+                continue
+            selected = set(selected_pages(doc, spec))
+            info["to_index"] = len(selected)
+            manifest_path = doc.extraction_dir(spec.name) / "manifest.json"
+            if not manifest_path.exists():
+                continue
+            manifest = Manifest.load_or_create(manifest_path, doc.info.page_count)
+            info["done"] = len(selected & set(load_page_results(doc, spec.name)))
+            info["failed"] = len(selected & set(manifest.failed_pages()))
+            result = self.export(doc, spec, target_dir=self.project_export_dir(project) / "documenti", primer=primer)
+            info.update(rows=result.index.stats.get("righe_finali", 0), errors=result.index.stats.get("errori", 0),
+                        warnings=result.index.stats.get("avvisi", 0), stale=result.stale, csv=True)
+        return out
+
     def suggested_context_refs(self, docs: list[Document], limit: int) -> list[tuple[str, int]]:
         """Pagine da mostrare a Gemini proposte dalla mappa della biblioteca.
 

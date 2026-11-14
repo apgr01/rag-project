@@ -91,6 +91,11 @@ La scheda **Biblioteca** (in alto) raccoglie tutti i PDF, organizzati in **carte
      versione, codice, alesaggio...), in qualsiasi ordine, con una descrizione facoltativa
      (es. `alesaggio` → "diametro del cilindro in mm"). Non decidono le colonne del CSV, che
      sceglie il progetto: servono a capire il PDF e a trovare i cataloghi da unire.
+   - **Nei progetti**: i progetti che usano questo PDF e, per ciascuno, le pagine da
+     indicizzare (📚 se vengono dalla biblioteca) e come procede la sua indicizzazione: pagine
+     fatte, fallite, righe, errori e avvisi, *regole cambiate: da rifare* se primer, specifica,
+     note o pagine sono cambiati dopo. Da qui scarichi il **CSV di questo PDF** e vai ai
+     risultati o all'indicizzazione del progetto.
    - **Pagine e collezioni**: sfoglia le miniature (frecce ← → per cambiare pagina; mentre giochi
      a Snake le frecce sono del gioco); *Apri il PDF ↗* apre il PDF originale in una nuova
      scheda alla pagina che stai guardando; clic per vedere una pagina, **Maiusc+clic** per selezionare un intervallo, poi scegli il tag e

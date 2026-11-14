@@ -38,7 +38,7 @@ from ragpdf.core.library import PAGE_TAGS
 from ragpdf.core.page_runner import RunControl, RunReport
 from ragpdf.core.paths import EXAMPLES_DIR
 from ragpdf.core.pdf_tools import build_multi_subset_pdf, labeled_mapping_text, page_mapping_text
-from ragpdf.core.projects import DocumentSettings, Project
+from ragpdf.core.projects import Project
 from ragpdf.core.prompts import load_prompt, render_prompt
 from ragpdf.core.render import format_pages, parse_page_ranges
 from ragpdf.indexing.assemble import AssembledIndex, assemble, merge
@@ -953,7 +953,8 @@ class SetupSession:
         notes = self.document_notes()
         for doc in self.documents:
             current = self.project.settings_for(doc.id)
-            self.project.set_settings(doc.id, DocumentSettings(notes=notes.get(doc.id, ""), pages=current.pages))
+            # solo le note cambiano: pagine e collezioni della biblioteca restano come sono
+            self.project.set_settings(doc.id, current.model_copy(update={"notes": notes.get(doc.id, "")}))
         self.app.assign_project_rules(self.project, self.state.primer_name, self.state.spec_name)
 
         self.state.saved_at = utc_now()

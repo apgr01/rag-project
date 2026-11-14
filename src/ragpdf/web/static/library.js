@@ -344,7 +344,7 @@ async function renderCatalog(id) {
     <p class="muted small">${esc(c.source_filename)} · ${total} pagine ·
       <a href="/api/documents/${enc(c.id)}/pdf" target="_blank" rel="noopener">apri il PDF</a>
       ${c.scanned ? ` · <span class="badge warn">scansione senza testo</span>` : ""}
-      ${c.projects.length ? ` · progetti: ${c.projects.map(p => `<a href="#/p/${enc(p.id)}/docs">${esc(p.name)}</a>`).join(", ")}` : ""}</p>
+      ${c.projects.length ? ` · <a href="#" id="goto-projects">in ${c.projects.length} progett${c.projects.length === 1 ? "o" : "i"}</a>` : ""}</p>
     <div id="job"></div>
     <div id="proposal"></div>
 
@@ -376,6 +376,7 @@ async function renderCatalog(id) {
       <button class="secondary" id="cat-delete" type="button">Elimina dalla biblioteca</button>
       <button id="cat-save" type="button">Salva scheda</button></div>
 
+    <div class="panel" id="projects-panel"></div>
     <div class="panel" id="guided-panel"></div>
 
     <div class="panel" id="analysis">
@@ -786,11 +787,56 @@ async function renderCatalog(id) {
   refreshSend();
   promptState();
 
+  renderCatalogProjects(c).catch(showError);
+  if ($("#goto-projects")) $("#goto-projects").addEventListener("click", e => {
+    e.preventDefault(); $("#projects-panel").scrollIntoView({ block: "start", behavior: "smooth" });
+  });
   renderGuidedPanel(c).catch(showError);
 
   // analisi in corso (pagina riaperta durante il lavoro)
   const running = await api("GET", `/api/library/catalogs/${enc(c.id)}/job`);
   if (running && running.status === "in_corso") watchJob($("#job"), running, j => { if (jobSucceeded(j)) renderCatalog(c.id); });
+}
+
+// ------------------------------------------------------------------ progetti che usano il catalogo
+/** Pannello della scheda: in quali progetti è il PDF e a che punto è la sua indicizzazione. */
+async function renderCatalogProjects(c) {
+  const box = $("#projects-panel");
+  if (!box) return;
+  box.innerHTML = `<h3>Nei progetti</h3><p class="muted small">Caricamento…</p>`;
+  const items = await api("GET", `/api/library/catalogs/${enc(c.id)}/projects`);
+  if (!$("#projects-panel")) return;
+  const status = p => {
+    if (p.job) return `<span class="badge warn">${esc(p.job)}…</span>`;
+    if (!p.configured) return `<span class="badge">configurazione da fare</span>
+      <a href="#/p/${enc(p.id)}/setup">configura →</a>`;
+    if (p.problem) return `<span class="badge error" title="${esc(p.problem)}">configurazione non leggibile</span>`;
+    const pct = p.to_index ? Math.round(100 * p.done / p.to_index) : 0;
+    return `<div class="row" style="gap:.35rem">
+        <div class="progress" style="width:8rem" title="${p.done} di ${p.to_index} pagine"><div style="width:${pct}%"></div></div>
+        <span class="small">${p.done}/${p.to_index} pagine</span>
+        ${p.failed ? `<span class="badge error">${p.failed} fallite</span>` : ""}
+        ${p.stale ? `<span class="badge warn" title="Primer, specifica, note o pagine sono cambiati dopo l'indicizzazione">regole cambiate: da rifare</span>` : ""}
+        ${p.rows !== null ? `<span class="badge ok">${p.rows} righe</span>` : ""}
+        ${p.errors ? `<span class="badge error">${p.errors} errori</span>` : ""}
+        ${p.warnings ? `<span class="badge warn">${p.warnings} avvisi</span>` : ""}</div>`;
+  };
+  box.innerHTML = `
+    <h3 style="margin-top:0">Nei progetti</h3>
+    ${items.length ? `<div class="table-wrap"><table>
+      <thead><tr><th>Progetto</th><th>Pagine da indicizzare</th><th>Indicizzazione di questo PDF</th><th></th></tr></thead>
+      <tbody>${items.map(p => `<tr>
+        <td><a href="#/p/${enc(p.id)}/docs"><strong>${esc(p.name)}</strong></a></td>
+        <td class="small">${p.pages ? `${esc(p.pages)}${p.from_library ? ' <span title="Dalle collezioni della biblioteca">📚</span>' : ""}`
+          : `<span class="muted">quelle della specifica</span>`}</td>
+        <td>${status(p)}</td>
+        <td class="small" style="white-space:nowrap">
+          ${p.csv ? `<a href="/api/projects/${enc(p.id)}/download/documento?doc=${enc(c.id)}">CSV di questo PDF</a><br>` : ""}
+          ${p.configured && p.done ? `<a href="#/p/${enc(p.id)}/results">Risultati →</a>`
+            : p.configured ? `<a href="#/p/${enc(p.id)}/index">Indicizza →</a>` : ""}</td>
+      </tr>`).join("")}</tbody></table></div>`
+      : `<p class="muted small">Questo PDF non è ancora in nessun progetto: crealo qui sotto con il progetto guidato,
+          oppure dalla biblioteca.</p>`}`;
 }
 
 // ------------------------------------------------------------------ scelta dalla biblioteca (per i progetti)

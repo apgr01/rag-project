@@ -85,7 +85,7 @@ Decisi insieme e da rispettare in tutti gli step:
 - [x] **Pagine per PDF scelte dalle collezioni** e *Aggiorna dalla biblioteca* (regola: ciò che
   descrive si legge in diretta, ciò che comanda si copia).
 - [x] **Progetto guidato** dalla scheda del PDF, al posto del raggruppamento in biblioteca.
-- [ ] **Ritorno nella scheda**: progetti in cui il PDF è usato e stato dell'indicizzazione.
+- [x] **Ritorno nella scheda**: progetti in cui il PDF è usato e stato dell'indicizzazione.
 - [x] ~~**C · Raggruppamento**~~ dei cataloghi selezionati: realizzato e poi sostituito dal
   *progetto guidato*, che parte dalla tabella voluta invece che dai cataloghi.
 

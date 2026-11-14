@@ -196,6 +196,10 @@ data/library/folders.yaml           cartelle (anche vuote)
   è una proposta salvata in `documents/<id>/analyses/`, applicata solo per le voci scelte e
   senza doppioni. Le richieste troppo pesanti (400/413 con messaggi sui limiti) diventano
   `RequestTooLargeError`, senza nuovi tentativi.
+- **Ritorno nella scheda** (`App.document_in_projects`): per ogni progetto che usa il PDF,
+  pagine da indicizzare, pagine fatte e fallite tra quelle scelte, righe, errori, avvisi e
+  impronta cambiata; per i progetti configurati rigenera anche il CSV di quel PDF dai risultati
+  salvati (senza Gemini), scaricabile dalla scheda.
 - **Progetto guidato** (`guided_project.py`): parte da un catalogo e da una richiesta (riga,
   colonne, CSV d'esempio, testo). Una sola richiesta, solo testo, con le schede dei cataloghi
   **elaborati** (al massimo 300; si può restringere a una cartella). Cataloghi e sezioni hanno
