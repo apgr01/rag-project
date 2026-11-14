@@ -86,6 +86,8 @@ Decisi insieme e da rispettare in tutti gli step:
   descrive si legge in diretta, ciò che comanda si copia).
 - [x] **Progetto guidato** dalla scheda del PDF, al posto del raggruppamento in biblioteca.
 - [x] **Ritorno nella scheda**: progetti in cui il PDF è usato e stato dell'indicizzazione.
+- [x] **Progetto in 5 passi** con il prossimo passo sempre in vista; ogni decisione in un posto
+  solo (tabella, PDF e pagine, regole); note per PDF di Gemini come proposte.
 - [x] ~~**C · Raggruppamento**~~ dei cataloghi selezionati: realizzato e poi sostituito dal
   *progetto guidato*, che parte dalla tabella voluta invece che dai cataloghi.
 

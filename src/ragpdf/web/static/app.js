@@ -6,7 +6,10 @@
  * Schermate (indirizzo dopo il #):
  *   #/                       elenco dei progetti, creazione di un nuovo progetto
  *   #/p/<id>/docs            PDF del progetto, note e pagine proprie di ciascun PDF
- *   #/p/<id>/setup           1. configurazione guidata (primer + specifica con Gemini)
+ *   #/p/<id>                 il progetto, aperto sul prossimo passo da fare
+ *   #/p/<id>/settings        ① Tabella: cosa vuoi ottenere (riga, colonne)
+ *   #/p/<id>/docs            ② PDF e pagine: pagine da indicizzare e note per PDF
+ *   #/p/<id>/setup           ③ Regole: primer + specifica scritti con Gemini (configurazione guidata)
  *   #/p/<id>/index           2. indicizzazione di tutti i PDF
  *   #/p/<id>/results         3. CSV unico, anomalie, pagina di ricerca
  *
@@ -324,7 +327,7 @@ async function route() {
   try {
     $$(".nav a").forEach(a => a.classList.toggle("active",
       a.dataset.nav === (["biblioteca", "guidato"].includes(parts[0]) ? "library" : "projects")));
-    if (parts[0] === "p" && parts[1]) await renderProject(parts[1], parts[2] || "docs");
+    if (parts[0] === "p" && parts[1]) await renderProject(parts[1], parts[2] || null);
     else if (parts[0] === "biblioteca" && parts[1] === "c" && parts[2]) await renderCatalog(parts[2]);
     else if (parts[0] === "biblioteca") await renderLibrary(parts.slice(1).join("/"));
     else if (parts[0] === "guidato" && parts[1] === "nuovo" && parts[2]) await renderGuidedNew(parts[2]);
@@ -384,16 +387,15 @@ async function renderHome() {
     <div class="panel">
       <h3>Progetti</h3>
       ${projects.length ? `<div class="table-wrap"><table>
-        <thead><tr><th>Progetto</th><th>PDF</th><th>Pagine</th><th>Configurazione</th><th>Indicizzate</th><th></th></tr></thead>
-        <tbody>${projects.map(p => {
-          const conf = p.spec ? `<span class="badge ok">pronta</span>`
-            : p.setup ? `<span class="badge warn">in corso (v${p.setup.round})</span>` : `<span class="badge">da fare</span>`;
-          return `<tr class="clickable" data-open="${esc(p.id)}">
+        <thead><tr><th>Progetto</th><th>PDF</th><th>Passi</th><th>Prossimo passo</th><th>Indicizzate</th><th></th></tr></thead>
+        <tbody>${projects.map(p => `<tr class="clickable" data-open="${esc(p.id)}">
             <td><strong>${esc(p.name)}</strong>${p.job ? `<br><span class="badge warn">${esc(p.job.label)}…</span>` : ""}</td>
-            <td>${p.documents.length}</td><td>${p.page_count}</td><td>${conf}</td>
-            <td>${p.spec ? `${p.done}/${p.page_count}` : "—"}</td>
-            <td><button class="secondary small" data-delete="${esc(p.id)}" type="button">Elimina</button></td></tr>`;
-        }).join("")}</tbody></table></div>` : `<p class="muted">Nessun progetto: creane uno qui sopra.</p>`}
+            <td>${p.documents.length}</td>
+            <td style="white-space:nowrap">${PROJECT_STEPS.map(([k, , num]) => stepDot(num, p.steps[k])).join("")}</td>
+            <td class="small">${esc(p.next.text)}</td>
+            <td>${p.progress ? `${p.progress.done}/${p.progress.to_index}` : "—"}</td>
+            <td><button class="secondary small" data-delete="${esc(p.id)}" type="button">Elimina</button></td></tr>`).join("")}
+        </tbody></table></div>` : `<p class="muted">Nessun progetto: creane uno qui sopra.</p>`}
     </div>`;
 
   let chosen = [];
@@ -407,11 +409,11 @@ async function renderHome() {
     if (!name) throw new Error("Dai un nome al progetto.");
     const project = await api("POST", "/api/projects", { name });
     if (chosen.length) await uploadPdfs(project.id, chosen, $("#chosen"));
-    location.hash = `#/p/${enc(project.id)}/${chosen.length ? "setup" : "docs"}`;
+    location.hash = `#/p/${enc(project.id)}`;          // si apre sul prossimo passo
   }));
   $$("[data-open]").forEach(tr => tr.addEventListener("click", e => {
     if (e.target.closest("button")) return;
-    location.hash = `#/p/${enc(tr.dataset.open)}/docs`;
+    location.hash = `#/p/${enc(tr.dataset.open)}`;
   }));
   $$("[data-delete]").forEach(b => b.addEventListener("click", async () => {
     const p = projects.find(x => x.id === b.dataset.delete);
@@ -425,15 +427,20 @@ async function renderHome() {
 // ------------------------------------------------------------------ PROGETTO
 async function renderProject(pid, tab) {
   const project = await api("GET", `/api/projects/${enc(pid)}`);
-  const tabs = [["docs", "Documenti"], ["settings", "Impostazioni"], ["setup", "1 · Configurazione"],
-                ["index", "2 · Indicizzazione"], ["results", "3 · Risultati"]];
+  tab = tab || project.next.tab;                       // senza scheda: si apre il prossimo passo
+  const next = project.next;
   view.innerHTML = `
     <p class="small"><a href="#/">&larr; Progetti</a></p>
     <h1>${esc(project.name)}</h1>
     <p class="muted small">${project.documents.length} PDF · ${project.page_count} pagine ·
       primer: ${esc(project.primer || "—")} · specifica: ${esc(project.spec || "—")}</p>
-    <nav class="tabs">${tabs.map(([k, label]) =>
-      `<a href="#/p/${enc(pid)}/${k}" class="${k === tab ? "active" : ""}">${label}</a>`).join("")}</nav>
+    <nav class="tabs steps-nav">${PROJECT_STEPS.map(([k, label, num]) => {
+      const st = project.steps[k];
+      return `<a href="#/p/${enc(pid)}/${k}" class="${k === tab ? "active" : ""}" title="${esc(st.state)}${st.note ? ": " + esc(st.note) : ""}">
+        ${stepDot(num, st)} ${label}${st.note ? `<small>${esc(st.note)}</small>` : ""}</a>`;
+    }).join("")}</nav>
+    <div class="next-step row"><span><strong>Prossimo passo:</strong> ${esc(next.text)}</span><span class="spacer"></span>
+      ${next.tab !== tab ? `<a class="linkbtn small" href="#/p/${enc(pid)}/${next.tab}">Vai &rarr;</a>` : ""}</div>
     <div id="job"></div>
     <div id="tab"></div>`;
   const ctx = {
@@ -464,6 +471,17 @@ async function renderProject(pid, tab) {
   else renderDocs(ctx);
 }
 
+// ------------------------------------------------------------------ i 5 passi del progetto
+const PROJECT_STEPS = [["settings", "Tabella", "①"], ["docs", "PDF e pagine", "②"], ["setup", "Regole", "③"],
+                       ["index", "Indicizzazione", "④"], ["results", "Risultati", "⑤"]];
+const STEP_STYLE = { "fatto": "ok", "in corso": "run", "da rivedere": "warn", "da fare": "todo", "facoltativo": "opt" };
+
+function stepDot(num, step) {
+  const cls = STEP_STYLE[step.state] || "todo";
+  const mark = { ok: "✓", run: "●", warn: "!", todo: "", opt: "" }[cls];
+  return `<span class="step-dot ${cls}" title="${esc(step.state)}">${num}${mark ? `<b>${mark}</b>` : ""}</span>`;
+}
+
 // ------------------------------------------------------------------ DOCUMENTI
 function renderDocs(ctx) {
   const { project, pid, box } = ctx;
@@ -484,7 +502,7 @@ function renderDocs(ctx) {
         <input type="file" id="file" accept=".pdf,application/pdf" multiple hidden></div>
       <div class="row" style="margin-top:.5rem"><button class="secondary" id="from-library" type="button">Scegli dalla biblioteca…</button>
         <span class="hint">I PDF caricati qui finiscono anche nella cartella principale della biblioteca.</span></div>
-      <p class="hint" id="upload-status">${project.spec ? "I nuovi PDF useranno primer e specifica del progetto: poi indicizzali dalla scheda 2." : ""}</p>
+      <p class="hint" id="upload-status">${project.spec ? "I nuovi PDF useranno le regole del progetto: poi indicizzali al passo ④ (scheda 2." : ""}</p>
     </div>
     <div class="panel">
       <h3>PDF del progetto</h3>
@@ -526,7 +544,7 @@ function renderDocs(ctx) {
           </div>
         </div>`).join("")}` : `<p class="muted">Nessun PDF: aggiungine qui sopra.</p>`}
       ${project.documents.length ? `<div class="row"><span class="spacer"></span>
-        <a href="#/p/${enc(pid)}/setup"><button type="button">${project.spec ? "Rivedi la configurazione" : "Avanti: configurazione"}</button></a></div>` : ""}
+        <a href="#/p/${enc(pid)}/setup"><button type="button">${project.spec ? "Rivedi le regole (③)" : "Avanti: ③ Regole"}</button></a></div>` : ""}
     </div>`;
   bindPageClicks(box, ctx.titles);
   if ($("#lib-update")) $("#lib-update").addEventListener("click", async e => {
@@ -535,7 +553,7 @@ function renderDocs(ctx) {
       <p>Le pagine da indicizzare di ${changes.map(c => `<strong>${esc(c.title)}</strong>`).join(", ")} verranno ricopiate
         dalle collezioni scelte (quelle eliminate vengono tolte).</p>
       ${indexed.length ? `<p class="note warn">Già indicizzati, andranno rifatti: ${indexed.map(c => esc(c.title)).join(", ")}
-        (solo questi PDF, dalla scheda 2).</p>` : ""}` });
+        (solo questi PDF, al passo ④).</p>` : ""}` });
     if (!ok) return;
     await busy(e.target, async () => {
       const r = await api("POST", `/api/projects/${enc(pid)}/library-update`, { docs: changes.map(c => c.doc_id) });
@@ -580,7 +598,7 @@ function renderDocs(ctx) {
       await api("PUT", `/api/projects/${enc(pid)}/documents/${enc(d.id)}/settings`,
         { notes: area.value, pages: pages.value, collections });
       area.dataset.original = area.value;
-      toast("Salvato. Se il PDF era già indicizzato, andrà rifatto (scheda 2).");
+      toast("Salvato. Se il PDF era già indicizzato, andrà rifatto (passo ④).");
       ctx.refresh();
     }));
     $(`[data-remove="${CSS.escape(d.id)}"]`).addEventListener("click", async e => {
@@ -602,7 +620,7 @@ async function renderSetup(ctx, { forceForm = false } = {}) {
 }
 
 function steps(current) {
-  const names = ["Pagine e obiettivo", "Invio a Gemini", "Prova e correzioni", "Salvataggio"];
+  const names = ["Pagine da mostrare", "Invio a Gemini", "Prova e correzioni", "Salvataggio"];
   return `<div class="steps">${names.map((n, i) =>
     `<span class="${i + 1 === current ? "current" : i + 1 < current ? "done" : ""}">${i + 1}. ${n}</span>`).join("")}</div>`;
 }
@@ -626,14 +644,13 @@ async function renderSetupForm(ctx, data) {
   const library = await api("GET", "/api/library");
   const session = data.session;
   const canReuse = library.primers.length && library.specs.length;
-  const goalKey = `goal:${pid}`;
   let selection = selectionFrom(session ? session.state.context_pages : data.suggested_pages);
   let active = docs[0].id;
   let reference = null, lastClicked = null;
 
   box.innerHTML = `
     ${steps(1)}
-    ${session && session.round ? `<div class="note warn">Esiste già una configurazione (versione ${session.state.current_round}).
+    ${session && session.round ? `<div class="note warn">Esistono già delle regole in lavorazione (versione ${session.state.current_round}).
        Continuando la sostituirai. <a href="#" id="back-to-session">Torna a quella esistente</a></div>` : ""}
     ${canReuse ? `<div class="panel">
       <h3>Da dove partire</h3>
@@ -657,18 +674,16 @@ async function renderSetupForm(ctx, data) {
       <div class="thumbs" id="thumbs"></div>
     </div>
     <div class="panel" id="goal-panel">
+      <h3>La tabella</h3>
       ${project.has_table ? `
-      <h3>La tabella del progetto</h3>
-      <p class="hint">Decisa nelle <a href="#/p/${enc(pid)}/settings">Impostazioni</a>: Gemini dovrà usare esattamente queste colonne.</p>
+      <p class="hint">Dal passo ① <a href="#/p/${enc(pid)}/settings">Tabella</a>: Gemini dovrà usare esattamente queste colonne.
+        Per cambiare cosa vuoi ottenere, modificala lì.</p>
       ${project.row ? `<p><strong>Una riga =</strong> ${esc(project.row)}</p>` : ""}
       ${project.fields.length ? `<p class="small">${project.fields.map((f, i) => `${i + 1}. <strong>${esc(f.name)}</strong>${f.description ? ` — ${esc(f.description)}` : ""}`).join("<br>")}</p>` : ""}
-      <label for="goal">Altre indicazioni per questa configurazione <span class="muted small">(facoltative)</span></label>`
-      : `
-      <h3>Cosa vuoi ottenere</h3>
-      <p class="hint">Descrivi il CSV a parole: cosa è una riga, quali colonne, regole particolari.
-        Puoi lasciarlo vuoto: Gemini proporrà l'indicizzazione più utile. Per decidere tu le colonne usa le
-        <a href="#/p/${enc(pid)}/settings">Impostazioni</a> del progetto.</p>`}
-      <textarea id="goal" rows="5" placeholder="Es. Una riga per ogni coppia codice FIN / codice OEM di ogni motore, con costruttore, motore, cilindri, alesaggio, corsa e versione dall'intestazione. Se manca il codice OEM lascia vuoto."></textarea>
+      ${project.instructions ? `<p class="small"><strong>Altre indicazioni:</strong> ${esc(project.instructions)}</p>` : ""}`
+      : `<p class="note">La tabella del passo ① è vuota: Gemini proporrà cosa è una riga e le colonne, e quando salvi le
+        regole verranno riportate nella <a href="#/p/${enc(pid)}/settings">Tabella</a>. Se sai già cosa vuoi,
+        scrivilo lì prima di iniziare.</p>`}
       <label>CSV di riferimento <span class="muted small">(facoltativo)</span></label>
       <p class="hint">Un indice già fatto: Gemini ne copia colonne e stile. Se contiene righe di questi PDF
         (stesso nome file nella colonna del file d'origine), ogni prova viene confrontata con esso.</p>
@@ -722,9 +737,6 @@ async function renderSetupForm(ctx, data) {
   $("#pages-clear").addEventListener("click", () => { selection = new Map(); sync(); });
   drawThumbs();
 
-  const goal = $("#goal");
-  goal.value = drafts.get(goalKey) || (session ? session.state.goal : "");
-  goal.addEventListener("input", () => drafts.set(goalKey, goal.value));
 
   $("#reference").addEventListener("change", async e => {
     const file = e.target.files[0]; if (!file) { reference = null; return; }
@@ -748,12 +760,12 @@ async function renderSetupForm(ctx, data) {
     if (!n && !modeExisting()) throw new Error("Seleziona almeno una pagina.");
     if (n > MAX_CONTEXT_PAGES) throw new Error(`Hai selezionato più di ${MAX_CONTEXT_PAGES} pagine.`);
     if (session && session.round) {
-      const ok = await confirmDialog({ title: "Sostituire la configurazione esistente?", danger: true, ok: "Sostituisci",
-        html: `<p>La configurazione attuale (${session.state.last_round} versioni) verrà sostituita da una nuova.
+      const ok = await confirmDialog({ title: "Ricominciare le regole da capo?", danger: true, ok: "Sostituisci",
+        html: `<p>Le versioni attuali (${session.state.last_round}) verranno sostituite da una nuova configurazione.
                I primer e le specifiche già <em>salvati</em> nel workspace non vengono toccati.</p>` });
       if (!ok) return;
     }
-    const body = { context_pages: selectionPairs(selection, docs), goal: goal.value,
+    const body = { context_pages: selectionPairs(selection, docs), goal: "",
                    reference: reference ? reference.path : null, name: $("#name").value.trim() || null };
     if (modeExisting()) { body.from_primer = $("#from-primer").value; body.from_spec = $("#from-spec").value; }
     const created = await api("POST", `/api/projects/${enc(pid)}/setup`, body);
@@ -796,9 +808,33 @@ function renderSetupReview(ctx, session) {
     await busy(e.target, async () => {
       const job = await api("POST", `/api/projects/${enc(pid)}/setup/start`);
       box.innerHTML = "";
-      watchJob(ctx.jobBox, job, () => renderSetup(ctx));
+      watchJob(ctx.jobBox, job, () => ctx.refresh());   // anche la barra dei passi
     });
   });
+}
+
+/** Le colonne della tabella (passo 1) affiancate a come le legge Gemini (specifica della versione). */
+function columnsTable(project, spec) {
+  const kind = c => `${c.required ? '<span class="badge">obbligatoria</span> ' : ""}${c.context ? '<span class="badge">intestazione</span>' : ""}`;
+  const own = project.fields;
+  let rows;
+  if (own.length) {
+    const used = new Set();
+    rows = own.map(f => {
+      const c = spec.columns.find(x => normName(x.name) === normName(f.name));
+      if (c) used.add(c.name);
+      return c ? `<tr><td><strong>${esc(f.name)}</strong></td><td>${esc(c.description)}</td><td>${kind(c)}</td><td class="ok-mark">✓</td></tr>`
+        : `<tr class="bad"><td><strong>${esc(f.name)}</strong></td><td><em>manca nella specifica</em></td><td></td><td>✗</td></tr>`;
+    }).concat(spec.columns.filter(c => !used.has(c.name)).map(c =>
+      `<tr class="bad"><td><em>${esc(c.name)}</em> <span class="badge warn">non è nella tabella</span></td><td>${esc(c.description)}</td><td>${kind(c)}</td><td>✗</td></tr>`));
+  } else {
+    rows = spec.columns.map(c => `<tr><td><strong>${esc(c.name)}</strong></td><td>${esc(c.description)}</td><td>${kind(c)}</td><td></td></tr>`);
+  }
+  return `${own.length ? "" : `<p class="hint">La tabella del passo ① è vuota: queste colonne proposte da Gemini verranno
+      riportate lì quando salvi le regole.</p>`}
+    <div class="table-wrap" style="max-height:20rem"><table class="cols-table">
+      <thead><tr><th>Colonna${own.length ? " (passo ①)" : ""}</th><th>Come la legge Gemini</th><th>Tipo</th><th></th></tr></thead>
+      <tbody>${rows.join("")}</tbody></table></div>`;
 }
 
 function renderSetupRound(ctx, session) {
@@ -811,10 +847,10 @@ function renderSetupRound(ctx, session) {
     ${steps(st.saved_at ? 4 : 3)}
     <div class="panel row">
       <div><strong>Versione ${r.number}</strong> <span class="muted small">di ${st.last_round}
-        ${st.saved_at ? " · configurazione salvata" : " · non ancora salvata"}</span></div>
+        ${st.saved_at ? " · regole salvate" : " · non ancora salvata"}</span></div>
       <span class="spacer"></span>
       <button class="secondary" id="new-setup" type="button">Ricomincia</button>
-      <button id="save" type="button">Salva configurazione</button>
+      <button id="save" type="button">Salva le regole</button>
     </div>
     <div class="grid2">
       <div>
@@ -826,15 +862,18 @@ function renderSetupRound(ctx, session) {
           ${spec.valid ? `
             <p><strong>Una riga del CSV =</strong> ${esc(spec.row)}</p>
             ${spec.pages ? `<p class="small">Pagine che verranno indicizzate: <strong>${esc(spec.pages)}</strong></p>` : ""}
-            <div class="table-wrap" style="max-height:18rem"><table><thead><tr><th>Colonna</th><th>Descrizione</th></tr></thead><tbody>
-              ${spec.columns.map(c => `<tr><td><strong>${esc(c.name)}</strong>
-                ${c.required ? ' <span class="badge">obbligatoria</span>' : ""}
-                ${c.context ? ' <span class="badge">intestazione</span>' : ""}</td><td>${esc(c.description)}</td></tr>`).join("")}
-            </tbody></table></div>` : `<div class="note error">Specifica non valida: ${esc(spec.error)}</div>`}
+            ${columnsTable(project, spec)}` : `<div class="note error">Specifica non valida: ${esc(spec.error)}</div>`}
           ${r.columns_check && !r.columns_check.ok ? `${columnsCheckNote(r.columns_check, "Questa versione della specifica")}
             <div class="row"><button class="secondary small" id="fix-columns" type="button">Chiedi a Gemini di correggerle</button></div>` : ""}
-          ${multi && Object.keys(r.document_notes).length ? `<div class="note"><strong>Note per singoli PDF</strong><ul>
-            ${Object.entries(r.document_notes).map(([d, n]) => `<li><strong>${esc(ctx.titles[d] || d)}</strong>: ${esc(n)}</li>`).join("")}</ul></div>` : ""}
+          ${r.note_proposals.length ? `<div class="note"><strong>Note per i singoli PDF proposte in questa versione</strong>
+            <p class="hint">Diverse da quelle del passo ② (PDF e pagine). Al salvataggio si applicano solo quelle spuntate;
+              la prova di questa versione le usa già.</p>
+            ${r.note_proposals.map(n => `<label class="row" style="font-weight:normal;align-items:flex-start;margin:.4rem 0">
+              <input type="checkbox" data-apply-note="${esc(n.document)}" ${n.current ? "" : "checked"}>
+              <span><strong>${esc(n.title)}</strong><br>
+                <span class="small">Proposta: ${n.proposed ? esc(n.proposed) : "<em>nessuna nota (togliere quella attuale)</em>"}</span><br>
+                <span class="small muted">Attuale: ${n.current ? esc(n.current) : "<em>nessuna</em>"}</span></span></label>`).join("")}
+          </div>` : ""}
         </div>
         <div class="panel">
           <h3>Correzione</h3>
@@ -853,8 +892,9 @@ function renderSetupRound(ctx, session) {
             <strong>v${v.round}</strong> · ${esc(v.origin)}${v.feedback ? ` — <span class="muted">${esc(v.feedback.slice(0, 90))}</span>` : ""}</li>`).join("")}</ul>
           <p class="hint">Clic su una versione per tornarci (nessuna richiesta a Gemini).</p>
         </div>
-        ${multi ? `<details class="panel"><summary>Note per singoli PDF (modificabili)</summary>
-          <p class="hint">Istruzioni in più valide solo per quel PDF; le colonne restano le stesse.</p>
+        ${multi ? `<details class="panel"><summary>Note per singoli PDF di questa versione (modificabili)</summary>
+          <p class="hint">Istruzioni in più valide solo per quel PDF; le colonne restano le stesse. Modificandole nasce una
+            nuova versione; al salvataggio delle regole scegli quali portare al passo ②.</p>
           ${project.documents.map(d => `<label>${esc(d.title)}</label><textarea data-doc-note="${esc(d.id)}" rows="2"></textarea>`).join("")}
           <div class="row"><span class="spacer"></span><button id="notes-save" type="button" disabled>Salva come nuova versione</button></div>
         </details>` : ""}
@@ -905,7 +945,7 @@ function renderSetupRound(ctx, session) {
       const job = await api("POST", `/api/projects/${enc(pid)}/setup/revise`, { feedback: feedback.value });
       drafts.clear(feedbackKey);
       box.innerHTML = "";
-      watchJob(ctx.jobBox, job, () => renderSetup(ctx));
+      watchJob(ctx.jobBox, job, () => ctx.refresh());   // anche la barra dei passi
     });
   });
 
@@ -918,7 +958,7 @@ function renderSetupRound(ctx, session) {
     await busy(e.target, async () => {
       const job = await api("POST", `/api/projects/${enc(pid)}/setup/preview`, { pages: text });
       box.innerHTML = "";
-      watchJob(ctx.jobBox, job, () => renderSetup(ctx));
+      watchJob(ctx.jobBox, job, () => ctx.refresh());   // anche la barra dei passi
     });
   });
 
@@ -927,7 +967,7 @@ function renderSetupRound(ctx, session) {
     if (n === r.number) return;
     const ok = await confirmDialog({ title: `Tornare alla versione ${n}?`, ok: "Torna",
       html: "<p>Nessuna richiesta a Gemini. Le altre versioni restano disponibili.</p>" });
-    if (ok) await busy(null, async () => { await api("POST", `/api/projects/${enc(pid)}/setup/round/${n}`); renderSetup(ctx); });
+    if (ok) await busy(null, async () => { await api("POST", `/api/projects/${enc(pid)}/setup/round/${n}`); ctx.refresh(); });
   }));
 
   for (const [kind, original] of [["primer", r.primer], ["spec", r.spec_text]]) {
@@ -940,7 +980,7 @@ function renderSetupRound(ctx, session) {
       await api("PUT", `/api/projects/${enc(pid)}/setup/${kind}`, { text: area.value });
       area.dataset.original = area.value;
       toast("Modifica salvata come nuova versione. Esegui una prova per verificarla.");
-      renderSetup(ctx);
+      ctx.refresh();
     }));
   }
   if (multi) {
@@ -952,7 +992,7 @@ function renderSetupRound(ctx, session) {
       await api("PUT", `/api/projects/${enc(pid)}/setup/notes`, { notes });
       areas.forEach(a => { a.dataset.original = a.value; });
       toast("Note salvate come nuova versione. Esegui una prova per verificarle.");
-      renderSetup(ctx);
+      ctx.refresh();
     }));
   }
 
@@ -961,10 +1001,10 @@ function renderSetupRound(ctx, session) {
     if (r.columns_check && !r.columns_check.ok) {
       const ok = await confirmDialog({ title: "Le colonne non coincidono", ok: "Salva comunque", danger: true,
         html: `${columnsCheckNote(r.columns_check, "Questa versione della specifica")}
-               <p>Puoi chiedere a Gemini di correggerle, oppure cambiare le colonne nelle Impostazioni del progetto.</p>` });
+               <p>Puoi chiedere a Gemini di correggerle, oppure cambiare le colonne nella Tabella (passo ①).</p>` });
       if (!ok) return;
     }
-    saveSetup(ctx, session, e.target);
+    saveSetup(ctx, session, e.target, { apply_notes: $$("[data-apply-note]:checked").map(b => b.dataset.applyNote) });
   });
   if ($("#fix-columns")) $("#fix-columns").addEventListener("click", () => {
     const fb = $("#feedback");
@@ -1002,23 +1042,25 @@ function renderPreview(p, spec, ctx) {
 
 async function saveSetup(ctx, session, button, extra = {}) {
   const pid = enc(ctx.pid);
+  const applied = (extra.apply_notes || []).length;
   if (!extra.overwrite && !extra.name) {
-    const ok = await confirmDialog({ title: "Salvare la configurazione?", ok: "Salva",
-      html: `<p>Primer <code>${esc(session.state.primer_name)}</code>, specifica <code>${esc(session.state.spec_name)}</code>
-             ${ctx.project.documents.length > 1 ? "e note per i singoli PDF " : ""}(versione ${session.round.number})
-             diventano le regole usate per indicizzare tutti i PDF del progetto.</p>` });
+    const ok = await confirmDialog({ title: "Salvare le regole?", ok: "Salva le regole",
+      html: `<p>Primer <code>${esc(session.state.primer_name)}</code> e specifica <code>${esc(session.state.spec_name)}</code>
+             (versione ${session.round.number}) diventano le regole usate per indicizzare tutti i PDF del progetto.</p>
+             ${applied ? `<p>${applied} not${applied === 1 ? "a" : "e"} per i singoli PDF passa${applied === 1 ? "" : "no"} al passo ②.</p>` : ""}
+             ${ctx.project.has_table ? "" : "<p>Le colonne proposte da Gemini diventano la Tabella del passo ①.</p>"}` });
     if (!ok) return;
   }
   await busy(button, async () => {
     try {
       const res = await api("POST", `/api/projects/${pid}/setup/save`, extra);
-      toast(res.reused_pages ? `Salvato. ${res.reused_pages} pagine della prova sono già contate come indicizzate.` : "Configurazione salvata.", 6000);
+      toast(res.reused_pages ? `Regole salvate. ${res.reused_pages} pagine della prova sono già contate come indicizzate.` : "Regole salvate.", 6000);
       location.hash = `#/p/${pid}/index`;
     } catch (e) {
       if (e.status !== 409 || !e.data || !e.data.conflicts) throw e;
       const choice = await conflictDialog(e.data);
-      if (choice === "overwrite") await saveSetup(ctx, session, button, { overwrite: true });
-      else if (choice) await saveSetup(ctx, session, button, { name: choice });
+      if (choice === "overwrite") await saveSetup(ctx, session, button, { ...extra, overwrite: true });
+      else if (choice) await saveSetup(ctx, session, button, { ...extra, name: choice });
     }
   });
 }
@@ -1039,7 +1081,7 @@ async function renderIndex(ctx) {
   try { plan = await api("GET", `/api/projects/${enc(pid)}/index/plan`); }
   catch (e) {
     box.innerHTML = `<div class="panel note warn">${esc(e.message)}</div>
-      <p><a href="#/p/${enc(pid)}/setup">Vai alla configurazione</a></p>`;
+      <p><a href="#/p/${enc(pid)}/setup">Vai alle regole (③)</a></p>`;
     return;
   }
   const changed = plan.spec_changed;

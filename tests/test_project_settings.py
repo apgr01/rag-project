@@ -55,7 +55,7 @@ def test_settings_prompt_and_checks(client_app, pdf_factory):
     assert "Ogni riga rappresenta: una riga per codice" in prompt
     assert "Colonne OBBLIGATORIE" in prompt and "  1. CODICE: codice articolo\n  2. PREZZO" in prompt
     assert "Altre indicazioni: Se manca il prezzo" in prompt
-    assert "Altre indicazioni per questa configurazione:\nsolo pagine pari" in prompt
+    assert "solo pagine pari" in prompt          # obiettivo delle configurazioni già avviate
     assert "SCHEDA DEL DOCUMENTO (dalla biblioteca)" in prompt and "Descrizione: Motori diesel." in prompt
 
     # Gemini (simulato) propone CODICE, DESCRIZIONE: il giro lo segnala

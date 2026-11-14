@@ -128,13 +128,22 @@ progetto ── documenti: alfa, beta, gamma
          └── export: CSV unico + CSV per PDF + anomalie con il file + ricerca.html
 ```
 
+- **I 5 passi** (① Tabella, ② PDF e pagine, ③ Regole, ④ Indicizzazione, ⑤ Risultati): il
+  riepilogo del progetto (`project_steps` nel server) calcola lo stato di ogni passo e il
+  **prossimo passo**, da impostazioni, sessione della configurazione, confronto delle colonne,
+  differenze con la biblioteca e avanzamento (`App.project_progress`, che legge solo i
+  manifest). Ogni decisione ha un posto solo: *cosa* (①), *da dove* (②), *come* (③).
 - **Impostazioni globali** (`ProjectInfo.description/row/fields/instructions`): la tabella che il
   progetto deve produrre. La configurazione guidata le mette nel prompt come vincolo e le
   colonne della specifica vengono confrontate con quelle decise (`compare_columns`: nomi senza
   badare a maiuscole e spazi, ordine compreso). Il confronto compare nel giro della
   configurazione e, per la specifica salvata, nel riepilogo del progetto. Le impostazioni non
   entrano direttamente nelle regole (l'impronta resta quella di primer e specifica): cambiarle
-  non rende vecchi i risultati, ma segnala che la specifica va riallineata.
+  non rende vecchi i risultati, ma segnala che la specifica va riallineata. Se la tabella è
+  vuota, al salvataggio delle regole vi vengono copiate riga e colonne della specifica, così
+  resta l'unica fonte. Le note per PDF proposte da Gemini in una versione sono **proposte**
+  (`SetupSession.note_proposals`): `save(apply_notes=[...])` applica solo quelle accettate
+  (dalla riga di comando, senza scelta, tutte).
 - **Schede della biblioteca nel prompt della configurazione**: descrizione, dati presenti e
   collezioni di ciascun PDF, lette in diretta (sono descrittive). Le pagine proposte da
   mostrare a Gemini vengono dalla mappa (`App.suggested_context_refs`: indice, legenda, esempi,

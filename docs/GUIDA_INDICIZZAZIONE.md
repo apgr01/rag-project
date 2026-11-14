@@ -166,16 +166,47 @@ progetto lo usa.
 ### Progetti: più PDF, un CSV
 
 Tutto è organizzato per **progetto**: uno o più PDF **con la stessa struttura** (per esempio
-i cataloghi dello stesso editore) che condividono primer e specifica e producono **un CSV
+i cataloghi dello stesso editore) che vengono letti con le stesse regole e producono **un CSV
 unico** da usare in una pagina di ricerca. Un singolo PDF è semplicemente un progetto con un
 solo file; i cataloghi già configurati prima dei progetti sono stati convertiti
 automaticamente.
 
-**Progetti (home).** Dai un nome, trascina uno o più PDF nel riquadro e premi *Crea progetto*.
+**Come nasce un progetto.** Con il *progetto guidato* dalla scheda di un PDF (consigliato,
+vedi sopra), selezionando dei PDF nella biblioteca (*Crea progetto…*), oppure dalla home
+*Progetti*: dai un nome, trascina uno o più PDF e premi *Crea progetto*.
 
-**Documenti.** Aggiungi altri PDF in qualsiasi momento (anche dopo l'indicizzazione: verranno
-elaborate solo le loro pagine). Il nome di ogni PDF porta alla sua **scheda della biblioteca**;
-sotto vedi la sua descrizione e i dati presenti. Per ogni PDF puoi impostare, facoltativamente:
+**I 5 passi.** In cima a ogni progetto c'è la barra dei passi, sempre nello stesso ordine:
+
+```
+① Tabella ── ② PDF e pagine ── ③ Regole ── ④ Indicizzazione ── ⑤ Risultati
+```
+
+Ogni passo mostra il suo stato (✓ fatto, ● in corso, **!** da rivedere, vuoto = da fare) e
+sotto c'è sempre il **prossimo passo** con il pulsante *Vai*. Aprendo un progetto ci si trova
+direttamente sul prossimo passo; anche la home mostra i passi e il prossimo passo di ogni
+progetto. Ogni cosa si decide in un posto solo:
+
+| Passo | Cosa decidi | Usa Gemini? |
+|---|---|---|
+| ① Tabella | **cosa** vuoi ottenere: riga, colonne, altre indicazioni | no |
+| ② PDF e pagine | **da dove**: quali PDF, quali pagine, note per singoli PDF | no |
+| ③ Regole | **come** leggere ogni pagina: primer e specifica | sì, con conferma |
+| ④ Indicizzazione | estrarre tutte le pagine | sì, una richiesta per pagina |
+| ⑤ Risultati | CSV, anomalie, pagina di ricerca | no |
+
+**① Tabella.** Qui, e solo qui, decidi cosa vuoi ottenere: **descrizione**, **cosa rappresenta
+una riga**, **colonne** nell'ordine del CSV (nome e descrizione) e **altre indicazioni**.
+Accanto a ogni colonna vedi in quanti PDF del progetto compare tra i *dati presenti* della
+biblioteca (es. `1/3`: negli altri resterà vuota o va spiegata nelle note); a destra trovi
+tutti i dati presenti dei PDF, e un clic ne aggiunge uno come colonna. Se arrivi dal progetto
+guidato è già compilata. Puoi anche lasciarla vuota: al passo ③ Gemini proporrà riga e
+colonne, e **quando salvi le regole vengono riportate qui**. Se la compili, le colonne sono
+**vincolanti**: Gemini deve usarle esattamente, e il programma lo controlla.
+
+**② PDF e pagine.** Aggiungi altri PDF in qualsiasi momento (anche dopo l'indicizzazione:
+verranno elaborate solo le loro pagine), caricandoli o con **Scegli dalla biblioteca…**. Il nome
+di ogni PDF porta alla sua **scheda della biblioteca**; sotto vedi la sua descrizione e i dati
+presenti. Per ogni PDF puoi impostare, facoltativamente:
 - **note**: istruzioni in più valide solo per quel PDF, per le differenze o le particolarità
   da segnalare (es. "in questo catalogo la versione è scritta sotto il nome del motore");
 - **pagine da indicizzare**: si scelgono **spuntando le collezioni** della sua scheda (di
@@ -184,65 +215,58 @@ sotto vedi la sua descrizione e i dati presenti. Per ogni PDF puoi impostare, fa
   dalla biblioteca.
 
 Le pagine sono una **copia**: se poi modifichi le collezioni nella biblioteca, il progetto non
-cambia da solo (le pagine fanno parte delle regole), ma in cima ai *Documenti* compare l'avviso
-**La biblioteca è cambiata** con le differenze; *Aggiorna dalla biblioteca* ricopia le pagine
-e dice quali PDF già indicizzati andranno rifatti. Descrizioni e dati presenti invece si
-leggono sempre in diretta.
+cambia da solo (le pagine fanno parte delle regole), ma compare l'avviso **La biblioteca è
+cambiata** con le differenze; *Aggiorna dalla biblioteca* ricopia le pagine e dice quali PDF
+già indicizzati andranno rifatti. Descrizioni e dati presenti invece si leggono sempre in
+diretta. Cambiando note o pagine di un PDF andrà reindicizzato solo quel PDF.
 
-Le **colonne** restano le stesse per tutti: è ciò che permette il CSV unico. Cambiando le note
-di un PDF andrà reindicizzato solo quel PDF.
-
-**Impostazioni.** La tabella che il progetto deve produrre: **descrizione**, **cosa rappresenta
-una riga**, **colonne** nell'ordine del CSV (nome e descrizione) e **altre indicazioni**.
-Accanto a ogni colonna vedi in quanti PDF del progetto compare tra i *dati presenti* della
-biblioteca (es. `1/3`: negli altri resterà vuota o va spiegata nelle note); a destra trovi
-tutti i dati presenti dei PDF, e un clic ne aggiunge uno come colonna. Sono facoltative: senza
-colonne la configurazione guidata le propone dall'obiettivo scritto a parole. Se le compili,
-sono **vincolanti**: Gemini deve usarle esattamente, e il programma lo controlla (vedi sotto).
-
-**1 · Configurazione.** Gemini riceve anche le **schede della biblioteca** dei PDF (descrizione,
-dati presenti, mappa delle pagine con i commenti): le usa per il primer e per le note dei
-singoli PDF. Se le impostazioni hanno le colonne, la casella dell'obiettivo diventa *altre
-indicazioni*, e ogni versione proposta viene confrontata con le colonne del progetto: se non
-coincidono compare un avviso con le differenze e il pulsante *Chiedi a Gemini di correggerle*;
-salvare comunque richiede una conferma, e l'avviso resta nelle schede Impostazioni e
-Indicizzazione finché non si rifà la configurazione.
+**③ Regole.** Gemini scrive le regole che varranno per **ogni** pagina: il **primer** (com'è
+fatto il documento) e la **specifica** (la tua tabella più i dettagli tecnici: dove si trova
+ogni dato, formato, se è un dato di intestazione). Riceve le pagine scelte, le **schede della
+biblioteca** dei PDF (descrizione, dati presenti, mappa delle pagine con i commenti) e la
+tabella del passo ①.
 1. Scegli le pagine da mostrare a Gemini. La proposta iniziale viene dalla mappa della
    biblioteca: le collezioni *Indice*, *Legenda* e *Pagina d'esempio* di ogni PDF (altrimenti le
    prime pagine più alcune distribuite). Con più PDF c'è una scheda per ciascuno: puoi
    prendere, per esempio, indice e legenda da un catalogo e due schede tipo da un altro.
    Clic sulle miniature (Maiusc+clic per un intervallo, doppio clic per ingrandire), oppure
    scrivi le pagine nel campo di testo. Il riepilogo sotto mostra tutto ciò che hai scelto.
-2. Scrivi cosa vuoi ottenere (o lascia vuoto) e, se vuoi, carica un CSV di riferimento.
-3. *Avanti* mostra un riepilogo: puoi tornare indietro, vedere **il prompt esatto** che verrà
+   Sotto vedi la tabella del passo ① (per cambiarla si va lì) e puoi caricare un CSV di
+   riferimento (di default quello del progetto guidato, se c'è).
+2. *Avanti* mostra un riepilogo: puoi tornare indietro, vedere **il prompt esatto** che verrà
    inviato e solo allora premere *Invia a Gemini*.
-4. Arrivano la proposta di Gemini (riepilogo, domande, colonne, eventuali **note per singoli
-   PDF** che si discostano dagli altri) e la **prova di estrazione**, che include sempre
-   **almeno una pagina per ogni PDF**: è lì che si vede se hanno davvero la stessa struttura.
-   Clic su una riga per vedere la sua pagina.
+3. Arrivano la proposta di Gemini (riepilogo, domande, la **tabella delle colonne**) e la
+   **prova di estrazione**, che include sempre **almeno una pagina per ogni PDF**: è lì che si
+   vede se hanno davvero la stessa struttura. Clic su una riga per vedere la sua pagina. Nella
+   tabella delle colonne ogni colonna del passo ① è affiancata a come la legge Gemini, con ✓;
+   una colonna mancante o in più è in rosso, con il pulsante *Chiedi a Gemini di correggerle*.
+4. Se Gemini propone **note per singoli PDF** diverse da quelle del passo ②, compaiono come
+   proposte con una casella: al salvataggio passano al passo ② solo quelle spuntate (di
+   default quelle per i PDF che non avevano note). La prova le usa già.
 5. Scrivi cosa correggere nel riquadro *Correzione* (anche riferito a un solo PDF: "nel Kubota
-   la versione è sotto il nome") e premi *Invia correzione*. Gemini decide se è una regola
-   comune o una nota per quel PDF. Le versioni restano nell'elenco: un clic per tornare a una
-   precedente. Primer, specifica e note si possono anche modificare a mano nei riquadri in
-   fondo.
-6. *Salva configurazione* quando il risultato ti convince.
+   la versione è sotto il nome") e premi *Invia correzione*. Le versioni restano nell'elenco:
+   un clic per tornare a una precedente. Primer, specifica e note di questa versione si possono
+   anche modificare a mano nei riquadri in fondo.
+6. **Salva le regole** quando il risultato ti convince: finché non lo fai, la barra continua a
+   ricordartelo e l'indicizzazione non può partire.
 
-**2 · Indicizzazione.** Una tabella per PDF con pagine fatte e da fare e la stima dei tempi;
+**④ Indicizzazione.** Una tabella per PDF con pagine fatte e da fare e la stima dei tempi;
 *Avvia* elabora tutti i PDF dopo una conferma. La barra di avanzamento si aggiorna da sola e
 *Ferma* interrompe in modo ordinato. Puoi chiudere la pagina: il lavoro continua finché il
 terminale con `ragpdf ui` è aperto, e riaprendo la pagina lo ritrovi. Se hai cambiato primer,
-specifica o note, vengono rifatti **solo** i PDF interessati.
+specifica, note o pagine, vengono rifatti **solo** i PDF interessati (il passo ④ diventa
+*da rivedere* e lo dice).
 
 Per ingannare l'attesa, sotto la barra c'è **Gemini Snake**: il serpente è Gemini che
 "ingerisce" le pagine PDF (frecce o WASD, spazio per la pausa, sul telefono si scorre il dito).
 Se perdi mentre Gemini lavora si ricomincia da soli; a fine indicizzazione il serpente produce
-gli `index.csv`, esplode e solo dopo si passa ai risultati. Lo stesso succede a fine
-configurazione se stai giocando (primer, specifica e anteprima). *Nascondi il gioco* lo toglie e la scelta
-viene ricordata; il gioco non influisce in alcun modo sul lavoro.
+gli `index.csv`, esplode e solo dopo si passa ai risultati. Lo stesso succede alla fine degli
+altri lavori di Gemini se stai giocando. *Nascondi il gioco* lo toglie e la scelta viene
+ricordata; il gioco non influisce in alcun modo sul lavoro.
 
-**3 · Risultati.**
+**⑤ Risultati.**
 - **CSV unico** del progetto (colonna del file d'origine per sapere da quale PDF viene ogni
-  riga) e un CSV per ciascun PDF;
+  riga) e un CSV per ciascun PDF (scaricabile anche dalla scheda del PDF nella biblioteca);
 - anomalie di tutti i PDF (prima errori, poi avvisi, poi note di Gemini; clic per vedere la
   pagina);
 - **pagina di ricerca**: si apre con il pulsante, ed è anche salvata come file autonomo in

@@ -144,7 +144,13 @@ che producono **un CSV unico**. È il coordinatore finale: solo lui ha la strutt
 del CSV. Lo stesso PDF può stare in più progetti (per esempio uno "per motore" e uno "per
 componente"): i risultati restano separati.
 
-**Impostazioni globali del progetto** ✅
+**Passi del progetto** ✅
+Il percorso di ogni progetto: **① Tabella** (cosa vuoi), **② PDF e pagine** (da dove), **③
+Regole** (come leggere ogni pagina), **④ Indicizzazione**, **⑤ Risultati**. Ogni passo ha uno
+stato (*fatto*, *in corso*, *da rivedere*, *da fare*, *facoltativo*) e il progetto indica sempre
+il **prossimo passo**.
+
+**Impostazioni globali del progetto / Tabella** ✅
 Cosa deve uscire dal progetto: **descrizione**, **cosa è una riga**, **colonne** (nome +
 descrizione), **altre indicazioni**. Le scrivi tu (progetto a mano) o arrivano dal progetto
 guidato. Sono la fonte autorevole: la specifica deve usare **esattamente** queste colonne, e il
@@ -165,9 +171,9 @@ Un dato valido per tutta la pagina (es. il nome del motore nell'intestazione) ch
 ogni riga anche se non è ripetuto. Con il **contesto ereditato** passa anche alle pagine
 successive dello stesso PDF che non lo riportano.
 
-**Obiettivo** ✅
-La casella "Cosa vuoi ottenere" della configurazione guidata, a parole. Se le impostazioni
-globali hanno la tabella, diventa *altre indicazioni per questa configurazione*.
+**Obiettivo** (tolto)
+La vecchia casella "Cosa vuoi ottenere" della configurazione guidata. Cosa vuoi ottenere si
+scrive ora solo nella Tabella (passo ①), anche a parole nelle *altre indicazioni*.
 
 **PDF del progetto** ✅
 I PDF che il progetto usa, ciascuno con le sue **impostazioni per PDF**. Il nome porta alla sua
@@ -203,13 +209,14 @@ pagine di quel PDF, modello di Gemini, modo di input.
 Un riassunto delle regole salvato insieme ai risultati. Se le regole cambiano, i risultati di
 quel PDF sono **vecchi** e vanno rifatti: il programma rifà **solo** i PDF interessati.
 
-**Configurazione guidata** ✅
-Il processo, a **versioni** successive, in cui Gemini scrive primer e specifica:
-1. scegli le *pagine mostrate a Gemini* e l'obiettivo (o le altre indicazioni, se la tabella è
-   già nelle impostazioni globali);
+**Regole / configurazione guidata** ✅
+Il passo ③ del progetto: il processo, a **versioni** successive, in cui Gemini scrive primer e
+specifica (le *regole*):
+1. scegli le *pagine mostrate a Gemini* (cosa vuoi ottenere è già nella Tabella);
 2. Gemini propone primer, specifica, note per i PDF e fa una *prova*;
 3. tu correggi **a parole**, e Gemini produce una nuova versione;
-4. *Salva configurazione* quando il risultato ti convince.
+4. *Salva le regole* quando il risultato ti convince: le note per PDF accettate passano al
+   passo ②, e se la Tabella era vuota vi vengono riportate le colonne.
 
 Gemini riceve anche le **schede** dei PDF (descrizione, mappa delle pagine, dati presenti) e
 la tabella delle impostazioni globali come vincolo; ogni versione della specifica viene
@@ -280,7 +287,7 @@ PDF andrebbero rifatti. Il progetto **non scrive** nella biblioteca.
 | note per il PDF | progetto | comanda l'estrazione di quel PDF | **sì** |
 | istruzioni | specifica | comandano l'estrazione di tutti i PDF | **sì** |
 | indicazioni | prompt di analisi / progetto guidato | dicono a Gemini cosa cercare | no |
-| obiettivo / altre indicazioni | configurazione guidata | cosa vuoi ottenere, a parole | indirettamente |
+| altre indicazioni | Tabella (passo ①) | cosa vuoi ottenere, a parole | indirettamente |
 
 **Le "pagine"** — cinque selezioni diverse:
 

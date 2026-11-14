@@ -76,11 +76,12 @@ ragpdf ui
 
 Si apre nel browser l'**interfaccia grafica**. Nella **biblioteca** carichi i cataloghi in
 cartelle, li descrivi, dai loro dei tag, elenchi i dati presenti e segni le pagine
-(copertina, indice, pagine con i dati, pagine d'esempio...). Poi crei un **progetto** con uno o più PDF della
-stessa struttura (es. i cataloghi di un editore), scegli le pagine cliccando le miniature,
-Gemini propone cosa estrarre e prova l'estrazione su ogni PDF, tu correggi a parole (anche con
-note per singoli PDF); poi avvii l'indicizzazione e ottieni **un CSV unico** per tutti i PDF e
-una **pagina di ricerca** pronta. Ogni invio a Gemini chiede conferma e mostra quante richieste
+(copertina, indice, pagine con i dati, pagine d'esempio...). Poi, dalla scheda di un catalogo,
+crei un **progetto guidato**: descrivi la tabella che vuoi e Gemini trova gli altri cataloghi
+da unire. Il progetto segue **5 passi** con il prossimo sempre in vista: ① la tabella (cosa
+vuoi), ② PDF e pagine (da dove), ③ le regole (Gemini scrive primer e specifica, prova
+l'estrazione su ogni PDF, tu correggi a parole), ④ l'indicizzazione, ⑤ i risultati: **un CSV
+unico** per tutti i PDF e una **pagina di ricerca** pronta. Ogni invio a Gemini chiede conferma e mostra quante richieste
 partiranno.
 
 Da riga di comando lo stesso percorso è:

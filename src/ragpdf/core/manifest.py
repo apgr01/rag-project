@@ -112,6 +112,9 @@ class Manifest:
     def counts(self) -> Counter:
         return Counter(info["status"] for info in self.data["pages"].values())
 
+    def done_pages(self) -> set[int]:
+        return {int(k) for k, v in self.data["pages"].items() if v["status"] == DONE}
+
     def failed_pages(self) -> dict[int, str]:
         return {
             int(k): v["error"] or "" for k, v in self.data["pages"].items() if v["status"] == FAILED

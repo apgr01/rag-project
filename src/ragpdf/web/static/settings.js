@@ -1,4 +1,4 @@
-/* Impostazioni globali del progetto: la tabella che il progetto deve produrre.
+/* ① Tabella (impostazioni globali del progetto): la tabella che il progetto deve produrre.
  *
  * Schermata #/p/<id>/settings: descrizione, cosa è una riga, colonne (nell'ordine del CSV),
  * altre indicazioni. Accanto alle colonne la copertura nei PDF del progetto, ricavata dai
@@ -35,12 +35,12 @@ async function renderSettings(ctx) {
 
   box.innerHTML = `
     ${columnsCheckNote(project.columns_check, "La specifica salvata")}
-    ${project.columns_check && !project.columns_check.ok ? `<p class="hint">Rifai la configurazione (scheda 1) per
+    ${project.columns_check && !project.columns_check.ok ? `<p class="hint">Rivedi le regole (passo ③) per
       allinearla alle impostazioni, poi reindicizza.</p>` : ""}
     <div class="grid2 wide-left">
       <div class="panel">
         <h3>La tabella del progetto</h3>
-        <p class="hint">Queste impostazioni decidono il CSV. La configurazione guidata le passa a Gemini come vincolo e
+        <p class="hint">Qui, e solo qui, decidi cosa vuoi ottenere. Al passo ③ Regole Gemini riceve la tabella come vincolo e
           controlla che la specifica usi <strong>esattamente</strong> queste colonne, in quest'ordine.</p>
         <label for="s-name">Nome del progetto</label>
         <input type="text" id="s-name">
@@ -89,7 +89,7 @@ async function renderSettings(ctx) {
         <button class="secondary small" data-cup="${i}" type="button" title="Sposta su" ${i ? "" : "disabled"}>&uarr;</button>
         <button class="secondary small" data-cdel="${i}" type="button" title="Togli">&times;</button></div>`;
     }).join("") : `<p class="muted small">Nessuna colonna: aggiungile qui sotto o dai dati presenti a destra.
-      Senza colonne la configurazione guidata le proporrà a partire dall'obiettivo scritto a parole.</p>`;
+      Puoi anche lasciarla vuota: al passo ③ Gemini proporrà riga e colonne, e salvando le regole verranno riportate qui.</p>`;
     $$("[data-cname]").forEach(el => el.addEventListener("input", () => { columns[+el.dataset.cname].name = el.value; }));
     $$("[data-cname]").forEach(el => el.addEventListener("change", drawCols));
     $$("[data-cdesc]").forEach(el => el.addEventListener("input", () => { columns[+el.dataset.cdesc].description = el.value; }));
@@ -113,8 +113,8 @@ async function renderSettings(ctx) {
     });
     desc.dataset.original = desc.value; instr.dataset.original = instr.value;
     toast(saved.columns_check && !saved.columns_check.ok
-      ? "Salvato. Le colonne non coincidono con la specifica salvata: rifai la configurazione e reindicizza."
-      : "Impostazioni salvate.", 6000);
+      ? "Salvato. Le colonne non coincidono con le regole salvate: rivedile al passo ③ e reindicizza."
+      : "Tabella salvata.", 6000);
     ctx.refresh();
   }));
 }

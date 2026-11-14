@@ -192,16 +192,80 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             return None
         return compare_columns(project.info.column_names, [c.name for c in spec.columns])
 
+    def project_steps(project: Project, docs: list[Document], session: SetupSession | None,
+                      progress: dict | None, check: dict | None, changes: list[dict]) -> dict[str, Any]:
+        """I 5 passi del progetto con il loro stato, e il prossimo passo da fare.
+
+        Stati: "fatto", "da fare", "in corso", "da rivedere", "facoltativo".
+        """
+        info = project.info
+        rnd = session.state.current_round if session else 0
+        unsaved = bool(rnd) and not (session and session.state.saved_at)
+        steps = {
+            "settings": ("fatto", f"{len(info.fields)} colonne") if info.has_table
+            else ("facoltativo", "vuota: la proporrà Gemini al passo ③"),
+            "docs": ("da fare", "nessun PDF") if not docs
+            else ("da rivedere", f"la biblioteca è cambiata per {len(changes)} PDF") if changes
+            else ("fatto", f"{len(docs)} PDF"),
+        }
+        if info.spec and check and not check["ok"]:
+            steps["setup"] = ("da rivedere", "le colonne non coincidono con la tabella")
+        elif info.spec:
+            steps["setup"] = ("fatto", "regole salvate")
+        elif rnd:
+            steps["setup"] = ("in corso", f"versione {rnd}, non salvata")
+        else:
+            steps["setup"] = ("da fare", "")
+        todo = 0
+        if progress is None:
+            steps["index"] = ("da fare", "prima servono le regole")
+            steps["results"] = ("da fare", "")
+        else:
+            todo = progress["to_index"] - progress["done"]
+            if progress["stale"]:
+                steps["index"] = ("da rivedere", f"{len(progress['stale'])} PDF da rifare: regole cambiate")
+            elif todo and progress["done"]:
+                steps["index"] = ("in corso", f"{progress['done']}/{progress['to_index']} pagine")
+            elif todo:
+                steps["index"] = ("da fare", f"{todo} pagine")
+            else:
+                steps["index"] = ("fatto", f"{progress['done']} pagine")
+            steps["results"] = ("fatto", "") if progress["done"] else ("da fare", "")
+
+        if not docs:
+            nxt = ("docs", "Aggiungi i PDF del progetto")
+        elif not info.has_table and not info.spec and not rnd:
+            nxt = ("settings", "Descrivi la tabella che vuoi, oppure lascia che la proponga Gemini al passo ③")
+        elif unsaved and (not info.spec or session.state.current_round):
+            nxt = ("setup", f"Controlla la versione {rnd} e salva le regole")
+        elif not info.spec:
+            nxt = ("setup", "Crea le regole con Gemini")
+        elif check and not check["ok"]:
+            nxt = ("setup", "Rivedi le regole: le colonne non coincidono con la tabella")
+        elif changes:
+            nxt = ("docs", "Aggiorna le pagine dalla biblioteca")
+        elif progress and (progress["stale"] or todo):
+            nxt = ("index", "Rifai i PDF con le regole cambiate" if progress["stale"] else f"Indicizza {todo} pagine")
+        else:
+            nxt = ("results", "Guarda i risultati")
+        return {"steps": {k: {"state": v[0], "note": v[1]} for k, v in steps.items()},
+                "next": {"tab": nxt[0], "text": nxt[1]}}
+
     def project_summary(project: Project) -> dict[str, Any]:
         docs = app.project_documents(project)
         session = SetupSession.load(app, project)
         job = jobs.active_for(project.id)
         statuses = [doc_status(project, d) for d in docs]
+        changes = [c for c in app.library_changes(project) if c["changed"]]
+        check = spec_columns_check(project)
+        progress = app.project_progress(project)
         return {
             **project.info.model_dump(exclude={"settings"}),
+            **project_steps(project, docs, session, progress, check, changes),
+            "progress": progress,
             "has_table": project.info.has_table,
-            "library_changes": [c for c in app.library_changes(project) if c["changed"]],
-            "columns_check": spec_columns_check(project),
+            "library_changes": changes,
+            "columns_check": check,
             "documents": statuses,
             "page_count": sum(d.info.page_count for d in docs),
             "done": sum(s["done"] for s in statuses),
@@ -807,6 +871,7 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
             "spec": spec_info,
             "document_notes": session.document_notes(),
             "preview": preview,
+            "note_proposals": session.note_proposals(),
             "columns_check": (compare_columns(session.project.info.column_names,
                                               [c["name"] for c in spec_info.get("columns", [])])
                               if session.project.info.fields and spec_info["valid"] else None),
@@ -940,7 +1005,9 @@ def create_app(app: App, jobs: JobManager | None = None) -> FastAPI:
         if conflicts and not body.get("overwrite") and not session.state.saved_at:
             return _error(409, "Esistono già file con questo nome.", conflicts=[p.name for p in conflicts],
                           name=session.state.spec_name)
-        primer_path, spec_path = session.save()
+        apply_notes = body.get("apply_notes")
+        primer_path, spec_path = session.save(
+            apply_notes=[str(d) for d in apply_notes] if isinstance(apply_notes, list) else None)
         reused = session.reuse_preview()
         return {"primer": str(primer_path), "spec": str(spec_path), "reused_pages": reused,
                 "spec_name": session.state.spec_name}

@@ -203,6 +203,41 @@ class App:
         project.save()
         return updated
 
+    def document_progress(self, project: Project, doc: Document, base: IndexingSpec | None = None,
+                          primer: str | None = None) -> dict:
+        """Pagine da indicizzare, fatte e fallite di un PDF nel progetto, e se le regole sono cambiate.
+
+        Usa solo il manifest (veloce anche con molte pagine); richiede la specifica del progetto.
+        """
+        spec = self.document_spec(project, doc, base)
+        selected = set(selected_pages(doc, spec))
+        info = {"to_index": len(selected), "done": 0, "failed": 0, "stale": False, "indexed": False}
+        manifest_path = doc.extraction_dir(spec.name) / "manifest.json"
+        if manifest_path.exists():
+            manifest = Manifest.load_or_create(manifest_path, doc.info.page_count)
+            info.update(done=len(selected & manifest.done_pages()), failed=len(selected & set(manifest.failed_pages())),
+                        stale=self._is_stale(doc, spec, manifest, primer), indexed=True)
+        return info
+
+    def project_progress(self, project: Project) -> dict | None:
+        """Avanzamento dell'indicizzazione di tutto il progetto (None senza specifica salvata)."""
+        if not project.info.spec:
+            return None
+        try:
+            base, primer = self.project_spec(project), self.project_primer(project)
+        except (SpecError, FileNotFoundError, PrimerMissingError):
+            return None
+        total = {"to_index": 0, "done": 0, "failed": 0, "stale": []}
+        for doc in self.project_documents(project):
+            p = self.document_progress(project, doc, base, primer)
+            total["to_index"] += p["to_index"]
+            total["failed"] += p["failed"]
+            if p["stale"]:
+                total["stale"].append(doc.id)     # risultati con regole vecchie: da rifare
+            else:
+                total["done"] += p["done"]
+        return total
+
     def document_in_projects(self, doc: Document) -> list[dict]:
         """In quali progetti è usato un PDF e a che punto è la sua indicizzazione in ciascuno.
 
@@ -227,14 +262,10 @@ class App:
             except (SpecError, FileNotFoundError, PrimerMissingError) as e:
                 info["problem"] = str(e)
                 continue
-            selected = set(selected_pages(doc, spec))
-            info["to_index"] = len(selected)
-            manifest_path = doc.extraction_dir(spec.name) / "manifest.json"
-            if not manifest_path.exists():
+            progress = self.document_progress(project, doc, primer=primer)
+            info.update(to_index=progress["to_index"], done=progress["done"], failed=progress["failed"])
+            if not progress["indexed"]:
                 continue
-            manifest = Manifest.load_or_create(manifest_path, doc.info.page_count)
-            info["done"] = len(selected & set(load_page_results(doc, spec.name)))
-            info["failed"] = len(selected & set(manifest.failed_pages()))
             result = self.export(doc, spec, target_dir=self.project_export_dir(project) / "documenti", primer=primer)
             info.update(rows=result.index.stats.get("righe_finali", 0), errors=result.index.stats.get("errori", 0),
                         warnings=result.index.stats.get("avvisi", 0), stale=result.stale, csv=True)

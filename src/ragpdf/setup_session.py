@@ -422,15 +422,22 @@ class SetupSession:
         return "\n".join(f"- [{d}] {titles.get(d, d)}: {n}" for d, n in notes.items())
 
     def _goal_text(self) -> str:
-        table = self._table_text()
-        goal = self.state.goal.strip()
-        if table:
-            return table + (f"\n\nAltre indicazioni per questa configurazione:\n{goal}" if goal else "")
-        return goal or (
-            "L'utente non ha indicato cosa vuole ottenere: proponi tu l'indicizzazione più utile "
-            "per questo documento (ad esempio, per un catalogo di ricambi, una riga per ogni codice "
-            "articolo con i dati che permettono di cercarlo)."
-        )
+        """Cosa vuole l'utente: la tabella del progetto (passo 1), unica fonte.
+
+        ``state.goal`` (l'obiettivo a parole delle versioni precedenti) resta solo per le
+        configurazioni già avviate.
+        """
+        parts = [p for p in (self._table_text(), self.state.goal.strip()) if p]
+        info = self.project.info
+        if not info.has_table:
+            if info.instructions.strip():
+                parts.insert(0, f"Indicazioni dell'utente: {info.instructions.strip()}")
+            parts.append(
+                "L'utente non ha ancora deciso le colonne: proponi tu l'indicizzazione più utile per "
+                "questo documento (ad esempio, per un catalogo di ricambi, una riga per ogni codice "
+                "articolo con i dati che permettono di cercarlo)."
+            )
+        return "\n\n".join(parts)
 
     def _table_text(self) -> str:
         """La tabella decisa dall'utente nelle impostazioni globali del progetto (vincolante)."""
@@ -927,8 +934,27 @@ class SetupSession:
                 changed.append(spec_target)
         return changed
 
-    def save(self) -> tuple[Path, Path]:
-        """Copia primer e specifica nel workspace e li associa al progetto (con le note per documento)."""
+    def note_proposals(self) -> list[dict[str, str]]:
+        """Note per documento della versione corrente diverse da quelle del progetto (passo 2).
+
+        Sono proposte: al salvataggio si applicano solo quelle accettate.
+        """
+        notes = self.document_notes()
+        out = []
+        for doc in self.documents:
+            current = self.project.settings_for(doc.id).notes.strip()
+            proposed = notes.get(doc.id, "").strip()
+            if proposed != current:
+                out.append({"document": doc.id, "title": doc.info.title, "current": current, "proposed": proposed})
+        return out
+
+    def save(self, apply_notes: list[str] | None = None) -> tuple[Path, Path]:
+        """Copia primer e specifica nel workspace e li associa al progetto.
+
+        ``apply_notes``: i documenti per cui applicare la nota proposta in questa versione
+        (``None`` = tutte, come dalla riga di comando); per gli altri resta la nota del progetto.
+        Se il progetto non ha ancora le colonne (passo 1), vengono riportate quelle della specifica.
+        """
         primer_target, spec_target = self.targets()
         primer_target.parent.mkdir(parents=True, exist_ok=True)
         spec_target.parent.mkdir(parents=True, exist_ok=True)
@@ -949,12 +975,20 @@ class SetupSession:
         atomic_write_text(spec_target, header + yaml.safe_dump(data, allow_unicode=True, sort_keys=False, width=100))
         load_spec(spec_target)
 
-        # note per documento: quelle della versione salvata; le pagine proprie restano
+        # note per documento: solo quelle accettate; pagine e collezioni della biblioteca restano
         notes = self.document_notes()
         for doc in self.documents:
+            if apply_notes is not None and doc.id not in apply_notes:
+                continue
             current = self.project.settings_for(doc.id)
-            # solo le note cambiano: pagine e collezioni della biblioteca restano come sono
             self.project.set_settings(doc.id, current.model_copy(update={"notes": notes.get(doc.id, "")}))
+        # la tabella del progetto resta l'unica fonte: se era vuota, ci vanno le colonne proposte
+        info = self.project.info
+        spec = load_spec(spec_target)
+        if not info.fields:
+            info.fields = [{"name": c.name, "description": c.description.strip()} for c in spec.columns]
+        if not info.row.strip():
+            info.row = " ".join(spec.row.split())
         self.app.assign_project_rules(self.project, self.state.primer_name, self.state.spec_name)
 
         self.state.saved_at = utc_now()

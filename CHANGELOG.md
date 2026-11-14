@@ -40,6 +40,13 @@ Formato ispirato a [Keep a Changelog](https://keepachangelog.com/it-IT/1.1.0/).
   precompilano progetto e configurazione guidata. Nei progetti, *Scegli dalla biblioteca…*.
 
 ### Modificato
+- **Il progetto è un percorso in 5 passi**: ① Tabella, ② PDF e pagine, ③ Regole, ④ Indicizzazione,
+  ⑤ Risultati, con lo stato di ogni passo e il **prossimo passo** sempre in vista (anche nella
+  home); aprendo un progetto ci si trova sul prossimo passo. Cosa vuoi ottenere si decide solo
+  nella Tabella (tolta la casella dell'obiettivo dalla configurazione); le colonne proposte
+  da Gemini con la tabella vuota vengono riportate lì al salvataggio; nella configurazione le
+  colonne si vedono in un'unica tabella accanto a come le legge Gemini; le note per singoli PDF
+  proposte da Gemini sono proposte da accettare e non sostituiscono più le tue.
 - I PDF appartengono alla biblioteca: togliere un PDF da un progetto o eliminare un progetto
   non cancella più il PDF né i suoi risultati. `ragpdf remove` rifiuta un PDF usato da un
   progetto.

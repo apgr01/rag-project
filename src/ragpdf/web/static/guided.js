@@ -320,7 +320,7 @@ async function renderGuidedReport(runId) {
     const ok = await confirmDialog({ title: "Creare il progetto?", ok: "Crea progetto", html: `
       <p>Progetto <strong>${esc($("#r-name").value.trim())}</strong> con ${ids.length} PDF:
         ${ids.map(id => esc(cat(id).title)).join(", ")}.</p>
-      <p class="hint">${columns.length} colonne diventano le impostazioni globali (vincolanti per la configurazione);
+      <p class="hint">${columns.length} colonne diventano la Tabella del progetto (passo ①, vincolante per le regole);
         le sezioni spuntate diventano le pagine da indicizzare${run.reference_name ? "; il CSV d'esempio diventa il riferimento" : ""}.</p>` });
     if (!ok) return;
     await busy(e.target, async () => {
@@ -329,7 +329,7 @@ async function renderGuidedReport(runId) {
         instructions: $("#r-instr").value, columns,
         documents: ids.map(id => ({ id, collections: $$(`[data-sec="${CSS.escape(id)}"]:checked`).map(b => b.value) })),
       });
-      toast("Progetto creato: ora la configurazione guidata.");
+      toast("Progetto creato: controlla la tabella e prosegui con il prossimo passo.");
       location.hash = `#/p/${enc(r2.project.id)}/settings`;
     });
   });

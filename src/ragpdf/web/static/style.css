@@ -189,6 +189,20 @@ a.linkbtn.small { padding: .2rem .55rem; font-size: .85rem; }
 .collect { margin-top: .75rem; padding: .6rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); }
 .pick-list { max-height: 50vh; overflow: auto; margin-top: .5rem; }
 
+/* i 5 passi del progetto */
+.steps-nav a { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 0; }
+.steps-nav a small { font-size: .72rem; color: var(--muted); font-weight: normal; max-width: 14rem; }
+.step-dot { display: inline-flex; align-items: center; gap: 1px; padding: 0 .35rem; border-radius: 999px; font-size: .8rem;
+            border: 1px solid var(--border); background: var(--bg); color: var(--muted); margin-right: .15rem; }
+.step-dot b { font-size: .7rem; }
+.step-dot.ok { background: #d9f2e3; color: #155c33; border-color: #a9dcbd; }
+.step-dot.run { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.step-dot.warn { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+.step-dot.opt { border-style: dashed; }
+.next-step { margin: -.5rem 0 1rem; padding: .5rem .75rem; border-radius: 6px; background: var(--accent-soft); }
+.cols-table tr.bad td { background: var(--error-soft); }
+.cols-table .ok-mark { color: var(--ok); font-weight: 700; }
+
 /* pagine del PDF scelte dalle collezioni */
 .coll-pick { max-height: 14rem; overflow: auto; border: 1px solid var(--border); border-radius: 6px; padding: .35rem .6rem; }
 

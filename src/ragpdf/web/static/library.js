@@ -308,7 +308,7 @@ async function renderLibrary(folder) {
     const name = await promptDialog({ title: "Nuovo progetto con i cataloghi selezionati", label: "Nome del progetto",
       value: chosen.length === 1 ? chosen[0].title : "", ok: "Crea progetto",
       help: `${chosen.map(c => esc(c.title)).join(", ")}.<br>Le pagine segnate <em>dati</em> diventano le pagine
-             del progetto; le pagine d'esempio, i dati presenti e le descrizioni precompilano la configurazione guidata.` });
+             del progetto; le pagine d'esempio, i dati presenti e le descrizioni precompilano le regole (passo ③).` });
     if (!name) return;
     await busy(null, async () => {
       const p = await api("POST", "/api/library/projects", { name, ids: ids() });
@@ -808,9 +808,9 @@ async function renderCatalogProjects(c) {
   if (!$("#projects-panel")) return;
   const status = p => {
     if (p.job) return `<span class="badge warn">${esc(p.job)}…</span>`;
-    if (!p.configured) return `<span class="badge">configurazione da fare</span>
+    if (!p.configured) return `<span class="badge">regole da fare</span>
       <a href="#/p/${enc(p.id)}/setup">configura →</a>`;
-    if (p.problem) return `<span class="badge error" title="${esc(p.problem)}">configurazione non leggibile</span>`;
+    if (p.problem) return `<span class="badge error" title="${esc(p.problem)}">regole non leggibili</span>`;
     const pct = p.to_index ? Math.round(100 * p.done / p.to_index) : 0;
     return `<div class="row" style="gap:.35rem">
         <div class="progress" style="width:8rem" title="${p.done} di ${p.to_index} pagine"><div style="width:${pct}%"></div></div>
